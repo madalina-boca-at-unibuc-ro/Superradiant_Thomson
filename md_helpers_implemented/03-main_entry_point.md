@@ -29,3 +29,11 @@ Edit the `INPUTS` dictionary in `main.py` to configure laser parameters, LG mode
 
 CLI flag `--show` enables interactive Matplotlib plot displays; default runs operate headless (`Agg`).
 
+## BLAS Thread Pinning
+
+Before any other import, `main.py` sets `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, and `VECLIB_MAXIMUM_THREADS` to `1` via `os.environ.setdefault(...)`, before `numpy` is imported.
+
+Reason: the screen solver (`compute_screen_emitted_field_from_laser_and_bunch` in `screen.py`) already parallelizes across `ProcessPoolExecutor` workers, one electron chunk per worker, sized up to `os.cpu_count()`. Without pinning, a multithreaded BLAS backend (observed with Anaconda's MKL build; can also affect OpenBLAS) makes *each* worker process additionally spawn its own thread pool sized to the full core count. On an $N$-core machine this oversubscribes to roughly $N^2$ threads, and every worker is starved down to a few percent CPU instead of the parallel speedup - much more severe the more cores a machine has, so it is most visible on many-core servers and easy to miss on a low-core laptop.
+
+`os.environ.setdefault` only fills in a var if unset, so it never overrides an explicit environment configuration and is inert wherever the effect wasn't happening (e.g. a `.venv` with a single-threaded-by-default BLAS build). It only affects wall-clock performance, not numerical results.
+

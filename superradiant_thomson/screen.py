@@ -302,7 +302,7 @@ def _worker_compute_chunk(args):
 
 def _worker_generate_solve_and_compute_chunk(args):
     """Worker task function: generates initial conditions, solves ODE trajectories, and computes screen radiation on the fly."""
-    indices_chunk, mode, amplitude, pulse, units, parameters, geometry, c, q, m, method, max_stored = args
+    indices_chunk, mode, amplitude, pulse, units, parameters, geometry, c, q, m, method, max_stored, progress = args
 
     NT = int(parameters['electron.NT'])
     duration = pulse.timing.duration
@@ -324,7 +324,10 @@ def _worker_generate_solve_and_compute_chunk(args):
     u_stored_dict = {}
     w_stored_dict = {}
 
+    n_chunk = len(indices_chunk)
     for k, global_idx in enumerate(indices_chunk):
+        if progress:
+            print(f'\rElectron {k + 1}/{n_chunk} (progress worker chunk)', end='', flush=True)
         r0_i = r0_chunk[k]
         u0_i = u0_chunk[k]
         r_i, u_i, w_i = solve_single_electron_trajectory(
@@ -341,6 +344,9 @@ def _worker_generate_solve_and_compute_chunk(args):
             r_stored_dict[global_idx] = r_i
             u_stored_dict[global_idx] = u_i
             w_stored_dict[global_idx] = w_i
+
+    if progress:
+        print(flush=True)
 
     return F_l_chunk, F_s_chunk, F_b_chunk, r0_chunk, u0_chunk, r_stored_dict, u_stored_dict, w_stored_dict, tau_eval
 
@@ -449,11 +455,14 @@ def compute_screen_emitted_field_from_laser_and_bunch(
     F_b_total = np.zeros(shape, dtype=complex)
 
     all_indices = np.arange(N_elec)
-    index_chunks = np.array_split(all_indices, max_workers)
+    index_chunks = [chunk for chunk in np.array_split(all_indices, max_workers) if len(chunk) > 0]
 
+    # Only the first worker prints progress, as a simple indicator that the
+    # (otherwise silent, potentially long-running) parallel solve is advancing.
     task_args = [
-        (chunk, mode, amplitude, pulse, units, params_dict, geometry, c, q, m, method, max_stored_trajectories)
-        for chunk in index_chunks if len(chunk) > 0
+        (chunk, mode, amplitude, pulse, units, params_dict, geometry, c, q, m, method,
+         max_stored_trajectories, k == 0)
+        for k, chunk in enumerate(index_chunks)
     ]
 
     r0_chunks_map = {}

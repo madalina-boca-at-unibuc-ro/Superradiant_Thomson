@@ -31,6 +31,8 @@ fig, ax = plot_temporal_factor(pulse, time, z=0.0, time_unit='fs', component='re
 
 Plots the spatial scalar intensity diagnostic $|E_0 u_{pm}(\mathbf{r}) f(t, z)|^2$ in the focal plane ($z=0$) at the start of the flat-top plateau ($t = \text{wing\_factor} \times \sigma_l$, where $|f|=1$).
 
+`main.py` sizes the sampled `x`/`y` extent to $\pm\,\text{electron.R\_beam}$ (falling back to $\pm w_0$ if `electron.R_beam` is 0), rather than a fixed multiple of $w_0$, so the heatmap directly shows whether the laser spot is contained within the electron bunch radius.
+
 ### Interface & Signature
 
 ```python
@@ -40,7 +42,7 @@ fig, ax = plot_lg_intensity(x, y, intensity, w_0=mode.w_0, time_in_periods=t_fla
 ```
 
 ### Key Properties
-- **Inputs**: 1D spatial coordinate grids `x` and `y` in atomic units (default 401 samples per axis over $[-2 w_0, 2 w_0]$); 2D array `intensity` ordered `[y, x]` in atomic electric field squared ($a.u.$).
+- **Inputs**: 1D spatial coordinate grids `x` and `y` in atomic units (401 samples per axis in `main.py`, over $[-\text{electron.R\_beam}, \text{electron.R\_beam}]$, or $[-w_0, w_0]$ if `electron.R_beam` is 0); 2D array `intensity` ordered `[y, x]` in atomic electric field squared ($a.u.$).
 - **Axes & Aspect**: Horizontal $x/w_0$, vertical $y/w_0$, equal aspect ratio, linear colorbar (`inferno`, vmin=0).
 - **Physical Quantity**: Scalar diagnostic $|E_0 u_{pm} f|^2$ in atomic field squared ($E_H^2$). Unscaled by spatial peak; the fundamental Gaussian $u_{00}$ peaks at $2 E_0^2$.
 - **Output**: Returns `(fig, ax)`.

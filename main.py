@@ -3,6 +3,19 @@
 Run from the project root: .venv/bin/python main.py
 Edit INPUTS below to configure this initial example.
 """
+import os
+
+# Electron trajectories/screen fields are parallelized across processes
+# (superradiant_thomson.screen.compute_screen_emitted_field_from_laser_and_bunch),
+# one electron per worker. Without this, BLAS backends (e.g. MKL, OpenBLAS)
+# each spawn a thread pool sized to the full core count *inside every worker*,
+# oversubscribing the machine many times over and starving all workers.
+for _threads_env in (
+    'OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS',
+    'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS',
+):
+    os.environ.setdefault(_threads_env, '1')
+
 from typing import Any
 
 import numpy as np
@@ -33,8 +46,8 @@ INPUTS = {
     'laser.flat_top_periods': 10,
     'laser.sigma_l': {'value': 2, 'unit': 'T'},
     'laser.wing_factor': 5,
-    'laser.p': 0,
-    'laser.m': 0,
+    'laser.p': 2,
+    'laser.m': 2,
     'laser.epsilon': 1,
     'laser.w_0': {'value': 75, 'unit': 'lambda'},
     'laser.zeta_x': 1.0,
@@ -42,13 +55,13 @@ INPUTS = {
     'x_plot_laser': {'value': 0.5, 'unit': 'w_0'},
     'y_plot_laser': {'value': 0.0, 'unit': 'w_0'},
     'z_plot_laser': {'value': 0.0, 'unit': 'w_0'},
-    'electron.N': 512,
+    'electron.N': 2048,
     'electron.seed': 42,
     'electron.NT': 100,
     'electron.x_0': {'value': 0.0, 'unit': 'w_0'},
     'electron.y_0': {'value': 0.0, 'unit': 'w_0'},
     'electron.z_0': {'value': 0.0, 'unit': 'w_0'},
-    'electron.R_beam': {'value': 2.0, 'unit': 'w_0'},
+    'electron.R_beam': {'value': 3.0, 'unit': 'w_0'},
     'electron.h_beam': {'value': 0.0, 'unit': 'w_0'},
     'electron.px_beam': {'value': 0.0, 'unit': 'c'},
     'electron.py_beam': {'value': 0.0, 'unit': 'c'},
@@ -59,8 +72,8 @@ INPUTS = {
     'screen.z_screen': {'value': 25000.0, 'unit': 'lambda'},
     'screen.width': {'value': 400.0, 'unit': 'lambda'},
     'screen.height': {'value': 400.0, 'unit': 'lambda'},
-    'screen.Nx': 32,
-    'screen.Ny': 32,
+    'screen.Nx': 64,
+    'screen.Ny': 64,
     'screen.omega_min': {'value': 0.5, 'unit': 'omega_0'},
     'screen.omega_max': {'value': 1.5, 'unit': 'omega_0'},
     'screen.N_omega': 3,
@@ -156,7 +169,12 @@ def main(*, show=False, output_root=None):
         figures.append(fig)
         fig.savefig(run_dir / 'temporal_factor.png', dpi=180)
         heatmap_time = pulse.timing.wing_duration
-        xy = np.linspace(-2 * mode.w_0, 2 * mode.w_0, 401)
+        # Half-extent matches the electron beam radius, so the plot shows
+        # whether the laser spot is contained within the electron bunch.
+        half_extent = float(parameters['electron.R_beam'])
+        if half_extent <= 0:
+            half_extent = mode.w_0
+        xy = np.linspace(-half_extent, half_extent, 401)
         spatial = mode(xy[None, :], xy[:, None], 0.0)
         intensity = np.abs(amplitude.E_0 * spatial * pulse(heatmap_time, z=0.0))**2
         np.savez_compressed(run_dir / 'lg_intensity.npz', x=xy, y=xy,
@@ -165,7 +183,9 @@ def main(*, show=False, output_root=None):
             'quantity': '|E_0*u_pm*f|^2 (scalar mode, not full vector E squared)',
             'units': 'atomic electric field squared', 'array_order': 'y,x',
             'time_au': heatmap_time, 'z_au': 0.0,
-            'extent_in_waists': [-2, 2], 'shape': list(intensity.shape),
+            'extent_in_waists': [-half_extent / mode.w_0, half_extent / mode.w_0],
+            'extent_source': 'electron.R_beam' if half_extent == parameters['electron.R_beam'] else 'w_0 (electron.R_beam was 0)',
+            'shape': list(intensity.shape),
         }
         fig, ax = plot_lg_intensity(xy, xy, intensity, w_0=mode.w_0,
                                    time_in_periods=heatmap_time / pulse.timing.period)
@@ -244,7 +264,7 @@ def main(*, show=False, output_root=None):
         # Generate 18 breakdown figures for each calculated frequency in distinct subfolders
         # Each figure is a 2x2 panel: Real, Imag, Modulus, Phase
         breakdown_figs = generate_all_screen_breakdown_plots(
-            screen_result, omega_idx=None, lambda_scale=mode.get_lambda(), pulse=pulse,
+            screen_result, omega_idx=None, lambda_scale=mode.w_0, unit_label='w_0', pulse=pulse,
             run_dir=run_dir, close_figs=not show
         )
         figures.extend(breakdown_figs)

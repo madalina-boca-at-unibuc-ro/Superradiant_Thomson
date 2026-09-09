@@ -75,6 +75,7 @@ Fuses initial condition generation, relativistic ODE trajectory integration, and
 3. **RAM Optimization**: Trajectory arrays are integrated and evaluated for radiation point-by-point or electron-by-electron, reducing memory footprint from $O(N_e \times N_\tau)$ down to $O(N_{\text{chunk}} \times N_\tau)$.
 4. **10-Electron Trajectory Sample**: Worker 0 retains full trajectories ($r, u, w$) for electron indices $0 \dots 9$, returning `sample_electron` for detailed 4-panel trajectory component plotting and mass-shell diagnostics.
 5. **Initial Conditions Gathering**: Workers return initial 4-position and 4-momentum vectors $(r_{0,i}, u_{0,i})$ for all $N_e$ electrons ($\sim 64\text{ bytes/electron}$), enabling exact 3D ensemble scatter plotting (`plot_electron_initial_distribution`).
+6. **Progress Indicator**: Only the first worker chunk (`k == 0` in the index-chunk partition) is given a `progress=True` flag; that worker prints `Electron {k+1}/{n_chunk} (progress worker chunk)` to stdout before solving each electron's trajectory in its chunk. Since chunks are equal-sized (`np.array_split`), this single stream is a proxy for overall progress without interleaving output from all workers.
 
 ---
 

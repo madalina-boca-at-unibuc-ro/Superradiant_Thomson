@@ -68,12 +68,15 @@ def plot_screen_emitted_intensity(result: ScreenResult, *, lambda_scale=None, pu
 
 def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx: int,
                                             contribution: str = 'long', omega_idx: int = 1,
-                                            *, lambda_scale=None, pulse=None, fig=None):
+                                            *, lambda_scale=None, unit_label='\\lambda',
+                                            pulse=None, fig=None):
     """Plot 2x2 panel (Real, Imag, Modulus, Phase) for one Faraday component and contribution.
 
     component_idx: integer 0..5 corresponding to ('F01', 'F02', 'F03', 'F12', 'F13', 'F23').
     contribution: 'long' (F_l), 'short' (F_s), or 'boundary' (F_b).
     omega_idx: frequency index to plot (default 1 for middle frequency).
+    lambda_scale: spatial scale in atomic units for x/y axis display (despite the name,
+        any length scale works, e.g. w_0); unit_label is its LaTeX display label.
     Returns: (fig, axs).
     """
     geom = result.geometry
@@ -90,7 +93,7 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
     if o_idx < 0 or o_idx >= geom.omega.size:
         raise IndexError('omega_idx out of bounds')
 
-    scale_spatial, label_spatial = (float(lambda_scale), '\\lambda') if lambda_scale is not None else (1.0, 'a.u.')
+    scale_spatial, label_spatial = (float(lambda_scale), unit_label) if lambda_scale is not None else (1.0, 'a.u.')
     if scale_spatial <= 0:
         raise ValueError('lambda_scale must be positive')
 
@@ -162,12 +165,15 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
 
 
 def generate_all_screen_breakdown_plots(result: ScreenResult, omega_idx: int | None = None,
-                                         *, lambda_scale=None, pulse=None, run_dir=None,
-                                         close_figs: bool = False):
+                                         *, lambda_scale=None, unit_label='\\lambda',
+                                         pulse=None, run_dir=None, close_figs: bool = False):
     """Generate and optionally save breakdown figures (6 components x 3 contributions = 18 per frequency).
 
     If `omega_idx` is an integer, generates 18 plots for that single frequency.
     If `omega_idx` is None (default), generates 18 plots for each frequency in `result.geometry.omega`.
+
+    lambda_scale: spatial scale in atomic units for x/y axis display (despite the name,
+        any length scale works, e.g. w_0); unit_label is its LaTeX display label.
 
     When `run_dir` is provided:
     - Single frequency (`omega_idx` specified): saves 18 PNGs into `run_dir`.
@@ -202,7 +208,7 @@ def generate_all_screen_breakdown_plots(result: ScreenResult, omega_idx: int | N
             for contrib in contributions:
                 fig, _ = plot_screen_faraday_component_breakdown(
                     result, comp, contribution=contrib, omega_idx=o_idx,
-                    lambda_scale=lambda_scale, pulse=pulse
+                    lambda_scale=lambda_scale, unit_label=unit_label, pulse=pulse
                 )
                 if target_dir is not None:
                     out_path = target_dir / f'screen_{name}_{contrib}.png'

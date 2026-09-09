@@ -19,8 +19,8 @@ Each simulation run automatically saves:
 - `electron_initial_distribution.png`: 2-panel 3D scatter plot of initial positions $(x,y,z)$ and momenta $(p_x,p_y,p_z)$ for all $N_e$ electrons.
 - `electron_position_trajectories.png`, `electron_velocity_trajectories.png`, `electron_acceleration_trajectories.png`: 4-panel proper-time component plots for up to 10 stored sample electrons.
 - `screen_emitted_field.npz`: complete 6-component complex FT Faraday tensors $F_l, F_s, F_b, F_{\text{total}}$ on the 2D observation screen across calculated frequencies.
-- `screen_emitted_intensity.png`: 2D total emitted intensity heatmap on the screen.
-- `screen_breakdown_omega_*/`: subfolders containing 18 4-panel component breakdown plots (Real, Imag, Modulus, Phase) for each component and contribution ($F_l, F_s, F_b$) at calculated frequencies.
+- `screen_emitted_intensity.png`: 2D total emitted intensity heatmap on the screen, $x$/$y$ axes in units of the laser wavelength $\lambda$.
+- `screen_breakdown_omega_*/`: subfolders containing 18 4-panel component breakdown plots (Real, Imag, Modulus, Phase) for each component and contribution ($F_l, F_s, F_b$) at calculated frequencies, $x$/$y$ axes in units of the beam waist $w_0$ (so the emission pattern can be compared directly against the electron beam radius `electron.R_beam`).
 
 ```sh
 .venv/bin/python main.py
