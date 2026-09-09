@@ -7,7 +7,7 @@ import numpy as np
 
 from .electron import Electron
 from .parameters import (
-    ANGULAR_FREQUENCY, DIMENSIONLESS, LENGTH, Parameter, Quantity,
+    ANGULAR_FREQUENCY, DIMENSIONLESS, LENGTH, AtomicUnits, Parameter, Quantity,
 )
 
 COMPONENT_NAMES = ('F01', 'F02', 'F03', 'F12', 'F13', 'F23')
@@ -26,9 +26,8 @@ def screen_schema():
         'screen.height': Parameter(LENGTH, Quantity(400.0, 'lambda'), pos_finite, 'screen height H_s along Oy'),
         'screen.Nx': Parameter(DIMENSIONLESS, 32, pos_int, 'number of pixels Nx along Ox'),
         'screen.Ny': Parameter(DIMENSIONLESS, 32, pos_int, 'number of pixels Ny along Oy'),
-        'screen.omega_min': Parameter(ANGULAR_FREQUENCY, Quantity(0.5, 'omega_0'), pos_finite, 'minimum frequency omega_min'),
-        'screen.omega_max': Parameter(ANGULAR_FREQUENCY, Quantity(1.5, 'omega_0'), pos_finite, 'maximum frequency omega_max'),
-        'screen.N_omega': Parameter(DIMENSIONLESS, 3, pos_int, 'number of frequency grid points N_omega'),
+        'screen.N_min': Parameter(DIMENSIONLESS, 1, pos_int, 'minimum harmonic order N_min'),
+        'screen.N_max': Parameter(DIMENSIONLESS, 3, pos_int, 'maximum harmonic order N_max'),
     }
 
 
@@ -49,6 +48,7 @@ class ScreenGeometry:
     Nx: int
     Ny: int
     omega: np.ndarray
+    harmonics: np.ndarray | None = None
 
     def __post_init__(self):
         for name in ('z_screen', 'width', 'height'):
@@ -70,22 +70,46 @@ class ScreenGeometry:
             raise ValueError('omega must be a 1D array of positive frequencies')
         object.__setattr__(self, 'omega', om)
 
+        if self.harmonics is not None:
+            h = np.asarray(self.harmonics, dtype=int)
+            object.__setattr__(self, 'harmonics', h)
+
     @classmethod
-    def from_parameters(cls, parameters):
-        """Construct ScreenGeometry from resolved parameters dictionary."""
+    def from_parameters(cls, parameters, units=None):
+        """Construct ScreenGeometry from resolved parameters dictionary using non-linear Thomson frequencies."""
         z_screen = float(parameters['screen.z_screen'])
         width = float(parameters['screen.width'])
         height = float(parameters['screen.height'])
         Nx = int(parameters['screen.Nx'])
         Ny = int(parameters['screen.Ny'])
-        w_min = float(parameters['screen.omega_min'])
-        w_max = float(parameters['screen.omega_max'])
-        N_w = int(parameters['screen.N_omega'])
-        if N_w == 1:
-            omega = np.array([w_min])
-        else:
-            omega = np.linspace(w_min, w_max, N_w)
-        return cls(z_screen=z_screen, width=width, height=height, Nx=Nx, Ny=Ny, omega=omega)
+        N_min = int(parameters['screen.N_min'])
+        N_max = int(parameters['screen.N_max'])
+        if N_min > N_max:
+            raise ValueError(f'screen.N_min ({N_min}) cannot exceed screen.N_max ({N_max})')
+
+        if units is None:
+            units = AtomicUnits()
+        c = float(units.c)
+        m = 1.0
+        omega_0 = float(parameters['laser.omega'])
+        a_0 = float(parameters['laser.a_0'])
+        px = float(parameters['electron.px_beam'])
+        py = float(parameters['electron.py_beam'])
+        pz = float(parameters['electron.pz_beam'])
+
+        p0 = float(np.sqrt((m * c)**2 + px**2 + py**2 + pz**2))
+        p = np.array([p0, px, py, pz])
+        n_L = np.array([1.0, 0.0, 0.0, 1.0])
+        zs_sign = 1.0 if z_screen >= 0 else -1.0
+        n_s = np.array([1.0, 0.0, 0.0, zs_sign])
+
+        q = p + (m * c) * (a_0**2 / 4.0) * n_L
+        nL_dot_q = q[0] - q[3]
+        ns_dot_q = q[0] - n_s[3] * q[3]
+
+        harmonics = np.arange(N_min, N_max + 1, dtype=int)
+        omega = harmonics.astype(float) * omega_0 * (nL_dot_q / ns_dot_q)
+        return cls(z_screen=z_screen, width=width, height=height, Nx=Nx, Ny=Ny, omega=omega, harmonics=harmonics)
 
     @property
     def dx(self) -> float:

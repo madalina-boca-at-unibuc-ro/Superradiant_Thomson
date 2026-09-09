@@ -37,6 +37,34 @@ class TestScreenGeometry(unittest.TestCase):
         with self.assertRaises(ValueError):
             ScreenGeometry(z_screen=100.0, width=10.0, height=20.0, Nx=0, Ny=2, omega=np.array([1.0]))
 
+    def test_nonlinear_thomson_frequency_formula(self):
+        """Test non-linear Thomson frequency calculation for forward and backward scattering."""
+        units = AtomicUnits()
+        params = {
+            'laser.omega': 0.057,
+            'laser.a_0': 1.0,
+            'electron.px_beam': 0.0,
+            'electron.py_beam': 0.0,
+            'electron.pz_beam': 0.0,
+            'screen.z_screen': 1000.0,
+            'screen.width': 50.0,
+            'screen.height': 50.0,
+            'screen.Nx': 4,
+            'screen.Ny': 4,
+            'screen.N_min': 1,
+            'screen.N_max': 3,
+        }
+        # Forward screen (z_screen > 0) for electron at rest -> omega_N = N * omega_0
+        geom_fwd = ScreenGeometry.from_parameters(params, units=units)
+        expected_fwd = np.array([1, 2, 3]) * 0.057
+        np.testing.assert_allclose(geom_fwd.omega, expected_fwd, rtol=1e-12)
+
+        # Backward screen (z_screen < 0) for electron at rest -> omega_N = N * omega_0 / (1 + a_0^2 / 2)
+        params_bwd = dict(params, **{'screen.z_screen': -1000.0})
+        geom_bwd = ScreenGeometry.from_parameters(params_bwd, units=units)
+        expected_bwd = np.array([1, 2, 3]) * 0.057 / (1.0 + 1.0**2 / 2.0)
+        np.testing.assert_allclose(geom_bwd.omega, expected_bwd, rtol=1e-12)
+
 
 class TestScreenEvaluator(unittest.TestCase):
 
@@ -81,9 +109,8 @@ class TestScreenEvaluator(unittest.TestCase):
             'screen.height': 50.0,
             'screen.Nx': 4,
             'screen.Ny': 4,
-            'screen.omega_min': 0.057,
-            'screen.omega_max': 0.114,
-            'screen.N_omega': 2,
+            'screen.N_min': 1,
+            'screen.N_max': 2,
         }
 
         schema = temporal_schema() | lg_schema() | amplitude_schema() | electron_schema() | screen_schema()
@@ -95,7 +122,7 @@ class TestScreenEvaluator(unittest.TestCase):
         self.amp = LaserAmplitude.from_parameters(self.params, units)
         self.pulse = TemporalFactor(PulseTiming.from_parameters(self.params), units.c)
         self.electron = solve_electron_ensemble(self.mode, self.amp, self.pulse, units, self.params)
-        self.geom = ScreenGeometry.from_parameters(self.params)
+        self.geom = ScreenGeometry.from_parameters(self.params, units=self.units)
 
     def test_form1_vs_form2_agreement(self):
         """Form 1 ('direct') and Form 2 ('simplified') evaluators return valid non-zero tensors."""
@@ -147,7 +174,7 @@ class TestScreenEvaluator(unittest.TestCase):
         plt.close(fig1)
 
         fig2, axs2 = plot_screen_faraday_component_breakdown(
-            result, component_idx=0, contribution='long', omega_idx=0,
+            result, component_idx=0, contribution='total', omega_idx=0,
             lambda_scale=self.mode.get_lambda(), pulse=self.pulse
         )
         self.assertIsNotNone(fig2)
@@ -156,7 +183,7 @@ class TestScreenEvaluator(unittest.TestCase):
         figs = generate_all_screen_breakdown_plots(
             result, omega_idx=0, lambda_scale=self.mode.get_lambda(), pulse=self.pulse
         )
-        self.assertEqual(len(figs), 18)
+        self.assertEqual(len(figs), 24)
         for f in figs:
             plt.close(f)
 

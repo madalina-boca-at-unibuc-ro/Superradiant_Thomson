@@ -55,7 +55,7 @@ INPUTS = {
     'x_plot_laser': {'value': 0.5, 'unit': 'w_0'},
     'y_plot_laser': {'value': 0.0, 'unit': 'w_0'},
     'z_plot_laser': {'value': 0.0, 'unit': 'w_0'},
-    'electron.N': 2048,
+    'electron.N': 1024,
     'electron.seed': 42,
     'electron.NT': 100,
     'electron.x_0': {'value': 0.0, 'unit': 'w_0'},
@@ -69,14 +69,13 @@ INPUTS = {
     'electron.sigma_px_beam': {'value': 0.0, 'unit': 'c'},
     'electron.sigma_py_beam': {'value': 0.0, 'unit': 'c'},
     'electron.sigma_pz_beam': {'value': 0.0, 'unit': 'c'},
-    'screen.z_screen': {'value': 25000.0, 'unit': 'lambda'},
+    'screen.z_screen': {'value': -25000.0, 'unit': 'lambda'},
     'screen.width': {'value': 400.0, 'unit': 'lambda'},
     'screen.height': {'value': 400.0, 'unit': 'lambda'},
     'screen.Nx': 64,
     'screen.Ny': 64,
-    'screen.omega_min': {'value': 0.5, 'unit': 'omega_0'},
-    'screen.omega_max': {'value': 1.5, 'unit': 'omega_0'},
-    'screen.N_omega': 3,
+    'screen.N_min': 1,
+    'screen.N_max': 3,
 }
 
 
@@ -209,7 +208,14 @@ def main(*, show=False, output_root=None):
         fig_fields.savefig(run_dir / 'laser_fields.png', dpi=180)
 
         # Compute trajectories and multi-frequency FT Faraday tensor on 2D screen in parallel workers
-        screen_geom = ScreenGeometry.from_parameters(parameters)
+        screen_geom = ScreenGeometry.from_parameters(parameters, units=units)
+        print(f'Screen geometry initialized at z_screen = {screen_geom.z_screen / mode.get_lambda():g} lambda.')
+        print('Calculated non-linear Thomson frequencies:')
+        for h_idx, w_au in enumerate(screen_geom.omega):
+            n_val = screen_geom.harmonics[h_idx] if screen_geom.harmonics is not None else (h_idx + 1)
+            w_rel = w_au / parameters['laser.omega']
+            print(f'  Harmonic N={n_val}: omega_{n_val} = {w_au:.8g} a.u. ({w_rel:.6g} omega_0)')
+
         sample_electron, r0_all, u0_all, screen_result = compute_screen_emitted_field_from_laser_and_bunch(
             mode, amplitude, pulse, units, parameters, screen_geom, max_stored_trajectories=10
         )
@@ -252,9 +258,10 @@ def main(*, show=False, output_root=None):
             'height_lambda': screen_geom.height / mode.get_lambda(),
             'Nx': screen_geom.Nx,
             'Ny': screen_geom.Ny,
+            'N_min': int(parameters['screen.N_min']),
+            'N_max': int(parameters['screen.N_max']),
             'N_omega': screen_geom.omega.size,
-            'omega_min_au': float(screen_geom.omega[0]),
-            'omega_max_au': float(screen_geom.omega[-1]),
+            'omega_harmonics_au': [float(w) for w in screen_geom.omega],
             'shape': list(screen_result.F_total.shape),
         }
         fig_screen, _ = plot_screen_emitted_intensity(screen_result, lambda_scale=mode.get_lambda(), pulse=pulse)

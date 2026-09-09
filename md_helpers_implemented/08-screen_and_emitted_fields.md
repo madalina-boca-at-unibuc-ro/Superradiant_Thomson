@@ -21,8 +21,12 @@ $$x_i = -\frac{W}{2} + \left(i + \frac{1}{2}\right)\Delta x, \quad y_j = -\frac{
 
 Evaluation coordinates $\mathbf{x}_{ji} = (x_i, y_j, Z_{\text{screen}})$ are stored in 2D array order `[y, x]`.
 
-### Frequency Grid:
-$N_\omega$ frequencies $\omega_k \in [\omega_{\min}, \omega_{\max}]$ in Hartree atomic units, with wavenumber $k_k = \omega_k / c$.
+### Non-Linear Thomson Frequency Grid:
+Harmonic frequencies $\omega_N$ for integer harmonic orders $N \in [N_{\min}, N_{\max}]$ in Hartree atomic units:
+
+$$\omega_N = N \omega_0 \frac{n_L \cdot q}{n_s \cdot q}$$
+
+where $q = p + (m c)\frac{a_0^2}{4} n_L$ is the dressed electron 4-momentum, $n_L = (1, 0, 0, 1)$, and $n_s = (1, 0, 0, \operatorname{sgn}(Z_{\text{screen}}))$. Wavenumber $k_N = \omega_N / c$.
 
 ---
 
@@ -84,8 +88,8 @@ Fuses initial condition generation, relativistic ODE trajectory integration, and
 - `screen.z_screen`: Screen z-position (default $25000 \lambda$).
 - `screen.width`, `screen.height`: Screen dimensions $W, H_s$ (default $400 \lambda$).
 - `screen.Nx`, `screen.Ny`: Pixel grid resolution (default $32 \times 32$).
-- `screen.omega_min`, `screen.omega_max`: Frequency bounds (default $0.5 \omega_0 \dots 1.5 \omega_0$).
-- `screen.N_omega`: Frequency grid points (default $3$).
+- `screen.N_min`: Minimum harmonic order $N_{\min}$ (default $1$).
+- `screen.N_max`: Maximum harmonic order $N_{\max}$ (default $3$).
 
 ---
 

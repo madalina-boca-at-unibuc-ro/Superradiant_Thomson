@@ -53,6 +53,7 @@ def plot_screen_emitted_intensity(result: ScreenResult, *, lambda_scale=None, pu
     for p_idx, iw in enumerate(indices):
         ax = axs.flat[p_idx]
         w_val = geom.omega[iw] / scale_w
+        N_val = geom.harmonics[iw] if (geom.harmonics is not None and iw < len(geom.harmonics)) else (iw + 1)
         data_2d = intensity[iw]
 
         im = ax.imshow(data_2d, origin='lower', extent=extent, cmap='inferno', aspect='equal')
@@ -60,20 +61,20 @@ def plot_screen_emitted_intensity(result: ScreenResult, *, lambda_scale=None, pu
         cbar.set_label('$\\sum_{\\mu<\\nu} |\\tilde{F}^{\\mu\\nu}|^2$ (a.u.)', fontsize=9)
 
         label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
-                   title=f'Emitted Intensity ($\\omega = {w_val:.2f}\\,{label_w}$)')
+                   title=f'Emitted Intensity ($\\omega_{{{N_val}}} = {w_val:.4g}\\,{label_w}$)')
 
     fig.suptitle(f'Observation Screen Radiation Field ($Z_0 = {geom.z_screen / scale_spatial:.1f}\\,{label_spatial}$)', fontsize=12)
     return fig, axs
 
 
 def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx: int,
-                                            contribution: str = 'long', omega_idx: int = 1,
+                                            contribution: str = 'total', omega_idx: int = 1,
                                             *, lambda_scale=None, unit_label='\\lambda',
                                             pulse=None, fig=None):
     """Plot 2x2 panel (Real, Imag, Modulus, Phase) for one Faraday component and contribution.
 
     component_idx: integer 0..5 corresponding to ('F01', 'F02', 'F03', 'F12', 'F13', 'F23').
-    contribution: 'long' (F_l), 'short' (F_s), or 'boundary' (F_b).
+    contribution: 'total' (F_total = F_l + F_s + F_b), 'long' (F_l), 'short' (F_s), or 'boundary' (F_b).
     omega_idx: frequency index to plot (default 1 for middle frequency).
     lambda_scale: spatial scale in atomic units for x/y axis display (despite the name,
         any length scale works, e.g. w_0); unit_label is its LaTeX display label.
@@ -84,9 +85,9 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
     if c_idx < 0 or c_idx >= 6:
         raise IndexError('component_idx must be in range 0..5')
 
-    contrib_map = {'long': result.F_l, 'short': result.F_s, 'boundary': result.F_b}
+    contrib_map = {'total': result.F_total, 'long': result.F_l, 'short': result.F_s, 'boundary': result.F_b}
     if contribution not in contrib_map:
-        raise ValueError("contribution must be 'long', 'short', or 'boundary'")
+        raise ValueError("contribution must be 'total', 'long', 'short', or 'boundary'")
 
     F_array = contrib_map[contribution]
     o_idx = int(omega_idx)
@@ -104,10 +105,11 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
 
     scale_w, label_w = (pulse.timing.omega, '\\omega_0') if pulse is not None else (1.0, 'a.u.')
     w_val = geom.omega[o_idx] / scale_w
+    N_val = geom.harmonics[o_idx] if (geom.harmonics is not None and o_idx < len(geom.harmonics)) else (o_idx + 1)
 
     name = COMPONENT_NAMES[c_idx]
-    contrib_label = {'long': 'long-distance (radiation)', 'short': 'short-distance (velocity)',
-                     'boundary': 'finite boundary'}[contribution]
+    contrib_label = {'total': 'total field (F_l + F_s + F_b)', 'long': 'long-distance (radiation)',
+                     'short': 'short-distance (velocity)', 'boundary': 'finite boundary'}[contribution]
 
     data_2d = F_array[o_idx, :, :, c_idx]  # (Ny, Nx) complex
 
@@ -160,29 +162,29 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
     label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
                title=f'Phase Arg($\\tilde{{{name}}}$)')
 
-    fig.suptitle(f'Faraday Tensor Component $\\tilde{{{name}}}$ [{contrib_label}] at $\\omega = {w_val:.2f}\\,{label_w}$', fontsize=12)
+    fig.suptitle(f'Faraday Tensor Component $\\tilde{{{name}}}$ [{contrib_label}] at $\\omega_{{{N_val}}} = {w_val:.4g}\\,{label_w}$', fontsize=12)
     return fig, axs
 
 
 def generate_all_screen_breakdown_plots(result: ScreenResult, omega_idx: int | None = None,
                                          *, lambda_scale=None, unit_label='\\lambda',
                                          pulse=None, run_dir=None, close_figs: bool = False):
-    """Generate and optionally save breakdown figures (6 components x 3 contributions = 18 per frequency).
+    """Generate and optionally save breakdown figures (6 components x 4 contributions = 24 per frequency).
 
-    If `omega_idx` is an integer, generates 18 plots for that single frequency.
-    If `omega_idx` is None (default), generates 18 plots for each frequency in `result.geometry.omega`.
+    If `omega_idx` is an integer, generates 24 plots for that single frequency.
+    If `omega_idx` is None (default), generates 24 plots for each frequency in `result.geometry.omega`.
 
     lambda_scale: spatial scale in atomic units for x/y axis display (despite the name,
         any length scale works, e.g. w_0); unit_label is its LaTeX display label.
 
     When `run_dir` is provided:
-    - Single frequency (`omega_idx` specified): saves 18 PNGs into `run_dir`.
+    - Single frequency (`omega_idx` specified): saves 24 PNGs into `run_dir`.
     - Multi-frequency (`omega_idx` is None): creates a distinct subfolder per frequency
-      (e.g., `screen_breakdown_omega_0.50_omega0`) containing its 18 PNGs.
+      (e.g., `screen_breakdown_N_1_omega_0.9950_omega0`) containing its 24 PNGs.
     """
     from pathlib import Path
     figs = []
-    contributions = ('long', 'short', 'boundary')
+    contributions = ('total', 'long', 'short', 'boundary')
     scale_w, label_w = (pulse.timing.omega, 'omega0') if pulse is not None else (1.0, 'au')
 
     if omega_idx is not None:
@@ -194,11 +196,12 @@ def generate_all_screen_breakdown_plots(result: ScreenResult, omega_idx: int | N
 
     for o_idx in o_indices:
         w_val = result.geometry.omega[o_idx] / scale_w
+        N_val = result.geometry.harmonics[o_idx] if (result.geometry.harmonics is not None and o_idx < len(result.geometry.harmonics)) else (o_idx + 1)
         if run_dir is not None:
             if single_mode:
                 target_dir = Path(run_dir)
             else:
-                target_dir = Path(run_dir) / f'screen_breakdown_omega_{w_val:.2f}_{label_w}'
+                target_dir = Path(run_dir) / f'screen_breakdown_N_{N_val}_omega_{w_val:.4g}_{label_w}'
             target_dir.mkdir(parents=True, exist_ok=True)
         else:
             target_dir = None

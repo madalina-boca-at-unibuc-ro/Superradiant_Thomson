@@ -21,15 +21,17 @@ class OutputTests(unittest.TestCase):
 
     def test_run_and_failure_metadata(self):
         import main
+        fast_inputs = dict(main.INPUTS, **{'electron.N': 2, 'screen.Nx': 4, 'screen.Ny': 4})
         with TemporaryDirectory() as root:
-            run = main.main(output_root=root)
-            self.assertEqual(json.loads((run / 'run.json').read_text())['status'], 'complete')
-            with np.load(run / 'temporal_factor.npz') as data:
-                self.assertEqual(data['time'].shape, (1001,))
-                np.testing.assert_allclose(np.abs(data['temporal_factor']), data['envelope'])
-            self.assertTrue((run / 'temporal_factor.png').stat().st_size > 0)
-            with patch.object(main, 'sample_pulse', side_effect=ValueError('test failure')):
-                with self.assertRaises(ValueError):
-                    main.main(output_root=root)
-            statuses = [json.loads(p.read_text())['status'] for p in Path(root).glob('*/run.json')]
-            self.assertCountEqual(statuses, ['complete', 'failed'])
+            with patch.object(main, 'INPUTS', fast_inputs):
+                run = main.main(output_root=root)
+                self.assertEqual(json.loads((run / 'run.json').read_text())['status'], 'complete')
+                with np.load(run / 'temporal_factor.npz') as data:
+                    self.assertEqual(data['time'].shape, (1001,))
+                    np.testing.assert_allclose(np.abs(data['temporal_factor']), data['envelope'])
+                self.assertTrue((run / 'temporal_factor.png').stat().st_size > 0)
+                with patch.object(main, 'sample_pulse', side_effect=ValueError('test failure')):
+                    with self.assertRaises(ValueError):
+                        main.main(output_root=root)
+                statuses = [json.loads(p.read_text())['status'] for p in Path(root).glob('*/run.json')]
+                self.assertCountEqual(statuses, ['complete', 'failed'])
