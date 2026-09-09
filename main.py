@@ -48,7 +48,7 @@ INPUTS = {
     'laser.wing_factor': 5,
     'laser.p': 2,
     'laser.m': 2,
-    'laser.epsilon': 1,
+    'laser.epsilon': -1,
     'laser.w_0': {'value': 75, 'unit': 'lambda'},
     'laser.zeta_x': 1.0,
     'laser.zeta_y': 0.0 + 1.0j,
