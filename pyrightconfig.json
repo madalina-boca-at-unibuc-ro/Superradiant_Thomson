@@ -1,0 +1,8 @@
+{
+  "venvPath": "/home/madalina/Dropbox/work/bin/python/Superradiant_Thomson",
+  "venv": ".venv",
+  "extraPaths": [
+    ".",
+    ".venv/lib/python3.14/site-packages"
+  ]
+}

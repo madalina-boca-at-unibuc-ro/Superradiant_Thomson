@@ -1,0 +1,18 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../../../../output"
+		}
+	],
+	"settings": {
+		"python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+		"python.venvPath": "${workspaceFolder}",
+		"python.analysis.extraPaths": [
+			"${workspaceFolder}",
+			"${workspaceFolder}/.venv/lib/python3.14/site-packages"
+		]
+	}
+}
