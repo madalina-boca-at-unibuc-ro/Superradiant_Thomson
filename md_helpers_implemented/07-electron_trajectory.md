@@ -33,22 +33,29 @@ where $p^0 = \sqrt{(mc)^2 + p_x^2 + p_y^2 + p_z^2}$. The relativistic Doppler fa
 
 $$\mathcal{D} = \frac{p^0 - p_z}{m c}$$
 
-### B. Numerical Step Size Adjustment (`compute_doppler_adjusted_tau_eval`)
+### B. Numerical Step Size & Proper Time Interval Adjustment (`compute_doppler_adjusted_tau_eval`)
 For an electron at rest ($\mathbf{p} = 0$), the step size $dt_r$ is determined by parameter `electron.NT` (points per laser period $T = 2\pi/\omega_0$):
 
 $$dt_r = \frac{T}{\text{NT}} = \frac{2\pi}{\omega_0 \, \text{NT}}$$
 
-For moving electrons ($\mathbf{p} \neq 0$), to ensure $\text{NT}$ sampling points per Doppler-shifted laser period in the electron frame, the step size $dt_m$ is scaled by the Doppler factor:
+For moving electrons ($\mathbf{p} \neq 0$), the total proper time required for the electron to experience the full laser pulse duration $D$ in phase $s = t - z/c \in [0, D]$ scales inversely with the Doppler factor:
+
+$$\tau_{\text{max}} = \frac{D}{\mathcal{D}} = \frac{D}{\frac{p^0 - p_z}{m c}}$$
+
+To maintain $\text{NT}$ sampling points per Doppler-shifted laser period in the electron frame, the proper time step size $dt_m$ scales as:
 
 $$dt_m = \frac{dt_r}{\mathcal{D}} = \frac{dt_r}{\frac{p^0 - p_z}{m c}}$$
 
-- **Head-on Collision ($p_z < 0$)**: $\mathcal{D} > 1.0 \implies dt_m < dt_r$. The step size shrinks to resolve fast blue-shifted phase oscillations.
-- **Co-propagating ($p_z > 0$)**: $\mathcal{D} < 1.0 \implies dt_m > dt_r$. The step size expands according to the red-shifted phase evolution.
-- **At Rest ($\mathbf{p} = 0$)**: $\mathcal{D} = 1.0 \implies dt_m = dt_r$.
+Dividing the total proper-time interaction duration $\tau_{\text{max}}$ by the step size $dt_m$:
 
-The total number of proper-time sampling points $N_\tau$ is:
+$$N_\tau = \frac{\tau_{\text{max}}}{dt_m} = \frac{D / \mathcal{D}}{dt_r / \mathcal{D}} = \frac{D}{dt_r} = \frac{D}{T} \times \text{NT}$$
 
-$$n_{\text{periods, doppler}} = \frac{D}{T} \times \mathcal{D}, \quad N_\tau = \max\left(2, \lfloor n_{\text{periods, doppler}} \times \text{NT} \rfloor + 1\right)$$
+> [!NOTE]
+> **Constant Step Count**: Because both the total interaction duration $\tau_{\text{max}}$ and the step size $dt_m$ scale by $1/\mathcal{D}$, the total number of trajectory integration steps $N_\tau = \lfloor (D/T) \times \text{NT} \rfloor + 1$ **remains constant** across all beam velocity configurations!
+
+- **Head-on Collision ($p_z < 0$)**: $\mathcal{D} > 1.0 \implies \tau_{\text{max}} = D/\mathcal{D} < D$ and $dt_m < dt_r$. The electron traverses the laser pulse in less proper time, and the step size shrinks proportionally.
+- **Co-propagating ($p_z > 0$)**: $\mathcal{D} < 1.0 \implies \tau_{\text{max}} = D/\mathcal{D} > D$ and $dt_m > dt_r$.
+- **At Rest ($\mathbf{p} = 0$)**: $\mathcal{D} = 1.0 \implies \tau_{\text{max}} = D$ and $dt_m = dt_r$.
 
 ---
 

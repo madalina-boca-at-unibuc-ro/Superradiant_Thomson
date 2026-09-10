@@ -186,7 +186,7 @@ def plot_electron_initial_distribution(r0, u0, *, w_0=None, c=None, fig=None):
     return fig, (ax_pos, ax_mom)
 
 
-def plot_electron_position_trajectories(electron, max_electrons=10, *, tau_unit='T', w_0=None, pulse=None, axs=None):
+def plot_electron_position_trajectories(electron, max_electrons=10, *, tau_unit='T', w_0=None, lambda_scale=None, pulse=None, axs=None):
     r"""Plot 4 components of 4-position r^\mu(tau) = (ct, x, y, z) as functions of proper time tau.
 
     Plots curves for the first K = min(max_electrons, N) electrons in a 2x2 panel figure.
@@ -200,9 +200,14 @@ def plot_electron_position_trajectories(electron, max_electrons=10, *, tau_unit=
     scale_tau, label_tau = _resolve_tau_scale(tau, tau_unit, pulse)
     displayed_tau = tau / scale_tau
 
-    scale_r, label_r = (float(w_0), 'w_0') if w_0 is not None else (1.0, 'a.u.')
+    if lambda_scale is not None:
+        scale_r, label_r = float(lambda_scale), r'\lambda'
+    elif w_0 is not None:
+        scale_r, label_r = float(w_0), 'w_0'
+    else:
+        scale_r, label_r = 1.0, 'a.u.'
     if scale_r <= 0:
-        raise ValueError('w_0 scale must be positive')
+        raise ValueError('Length scale must be positive')
 
     if axs is None:
         fig, axs = plt.subplots(2, 2, figsize=(10, 7), layout='constrained')
@@ -306,13 +311,13 @@ def plot_electron_acceleration_trajectories(electron, max_electrons=10, *, tau_u
     return fig, axs
 
 
-def plot_electron_ensemble_trajectories(electron, max_electrons=10, *, tau_unit='T', w_0=None, c=None, pulse=None):
+def plot_electron_ensemble_trajectories(electron, max_electrons=10, *, tau_unit='T', w_0=None, lambda_scale=None, c=None, pulse=None):
     """Plot 3 figures for 4-position, 4-velocity, and 4-acceleration trajectories of the first K electrons.
 
     Returns: (fig_pos, fig_vel, fig_acc).
     """
     fig_pos, _ = plot_electron_position_trajectories(electron, max_electrons=max_electrons,
-                                                     tau_unit=tau_unit, w_0=w_0, pulse=pulse)
+                                                     tau_unit=tau_unit, w_0=w_0, lambda_scale=lambda_scale, pulse=pulse)
     fig_vel, _ = plot_electron_velocity_trajectories(electron, max_electrons=max_electrons,
                                                      tau_unit=tau_unit, c=c, pulse=pulse)
     fig_acc, _ = plot_electron_acceleration_trajectories(electron, max_electrons=max_electrons,

@@ -286,7 +286,8 @@ def compute_doppler_factor(parameters, c: float, m: float = 1.0) -> float:
 def compute_doppler_adjusted_tau_eval(pulse: TemporalFactor, parameters, c: float, m: float = 1.0) -> np.ndarray:
     """Construct Doppler-adjusted proper-time evaluation grid tau_eval for trajectory integration.
 
-    The step size dt_m = dt_r / Doppler_factor ensures NT sampling points per Doppler-shifted laser period.
+    Proper time duration tau_max = D / Doppler_factor ensures the electron traverses the full laser phase D.
+    Step size dt_m = dt_r / Doppler_factor, leaving the total number of sampling points n_points unchanged.
     """
     NT_val = _get_param_val(parameters, 'electron.NT', 100)
     NT = int(NT_val)
@@ -297,9 +298,10 @@ def compute_doppler_adjusted_tau_eval(pulse: TemporalFactor, parameters, c: floa
     period = pulse.timing.period
     doppler_factor = compute_doppler_factor(parameters, c, m)
 
-    n_periods_doppler = (duration / period) * doppler_factor
-    n_points = max(2, int(round(n_periods_doppler * NT)) + 1)
-    return np.linspace(0.0, duration, n_points)
+    n_periods = duration / period
+    n_points = max(2, int(round(n_periods * NT)) + 1)
+    tau_max = duration / doppler_factor
+    return np.linspace(0.0, tau_max, n_points)
 
 
 def solve_electron_ensemble(mode: LGMode, amplitude: LaserAmplitude, pulse: TemporalFactor,

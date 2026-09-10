@@ -118,13 +118,14 @@ from superradiant_thomson.plotting import (
 
 # 3 separate 4-panel trajectory figures
 fig_pos, fig_vel, fig_acc = plot_electron_ensemble_trajectories(
-    electron, max_electrons=10, tau_unit='T', w_0=mode.w_0, c=units.c, pulse=pulse
+    electron, max_electrons=10, tau_unit='T', lambda_scale=mode.get_lambda(), c=units.c, pulse=pulse
 )
 ```
 
 ### Key Properties
 - **Layout**: $2 \times 2$ grid of subplots for each 4-vector (Panel 0: component 0, Panel 1: component 1, Panel 2: component 2, Panel 3: component 3).
 - **Proper Time Scale**: Displayed in units of laser periods $T = 2\pi/\omega$ when `tau_unit='T'`.
+- **Length Scale**: Displayed in units of laser wavelength $\lambda$ (`lambda_scale=mode.get_lambda()`) or waist $w_0$ (`w_0=mode.w_0`).
 - **Multi-Electron Overlay**: Plots up to $K = 10$ distinct colored trajectory curves with automatic figure legends.
 - **Output**: Returns tuple of figures `(fig_pos, fig_vel, fig_acc)`.
 

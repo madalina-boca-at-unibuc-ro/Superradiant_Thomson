@@ -74,13 +74,16 @@ class ElectronPlotTests(unittest.TestCase):
         fig_r, axs_r = plot_electron_position_trajectories(electron, max_electrons=10, w_0=self.w_0)
         self.assertEqual(axs_r.shape, (2, 2))
 
+        fig_r_lam, axs_r_lam = plot_electron_position_trajectories(electron, max_electrons=10, lambda_scale=15000.0)
+        self.assertIn(r'\lambda', axs_r_lam.flat[0].get_ylabel())
+
         fig_u, axs_u = plot_electron_velocity_trajectories(electron, max_electrons=5, c=self.c)
         self.assertEqual(axs_u.shape, (2, 2))
 
         fig_w, axs_w = plot_electron_acceleration_trajectories(electron, max_electrons=10, c=self.c)
         self.assertEqual(axs_w.shape, (2, 2))
 
-        fig_pos, fig_vel, fig_acc = plot_electron_ensemble_trajectories(electron, max_electrons=10, w_0=self.w_0, c=self.c)
+        fig_pos, fig_vel, fig_acc = plot_electron_ensemble_trajectories(electron, max_electrons=10, lambda_scale=15000.0, c=self.c)
         self.assertIsNotNone(fig_pos)
         self.assertIsNotNone(fig_vel)
         self.assertIsNotNone(fig_acc)

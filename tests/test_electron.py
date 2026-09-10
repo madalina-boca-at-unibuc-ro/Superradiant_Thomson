@@ -214,7 +214,7 @@ class ElectronTests(unittest.TestCase):
         tau_rest = compute_doppler_adjusted_tau_eval(self.pulse, params_rest, c=c)
         n_rest = tau_rest.size
 
-        # 2. Head-on collision (pz < 0): Doppler factor > 1.0 -> more points
+        # 2. Head-on collision (pz < 0): Doppler factor > 1.0 -> smaller step size dt_m, smaller tau_max, same n_points
         params_headon = dict(base_params, **{'electron.pz_beam': -5.0 * c})
         d_headon = compute_doppler_factor(params_headon, c=c)
         p0_headon = np.sqrt(c**2 + (5.0 * c)**2)
@@ -223,7 +223,13 @@ class ElectronTests(unittest.TestCase):
         self.assertGreater(d_headon, 1.0)
 
         tau_headon = compute_doppler_adjusted_tau_eval(self.pulse, params_headon, c=c)
-        self.assertGreater(tau_headon.size, n_rest)
+        self.assertEqual(tau_headon.size, n_rest)  # Total step count remains constant
+        self.assertAlmostEqual(tau_headon[-1], self.pulse.timing.duration / d_headon, places=10)  # Proper time duration shrinks
+
+        # Step size shrinks by factor d_headon
+        dt_rest = tau_rest[1] - tau_rest[0]
+        dt_headon = tau_headon[1] - tau_headon[0]
+        self.assertAlmostEqual(dt_headon, dt_rest / d_headon, places=10)
 
         # 3. Co-propagating (pz > 0): Doppler factor < 1.0
         params_coprop = dict(base_params, **{'electron.pz_beam': 5.0 * c})

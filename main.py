@@ -46,8 +46,8 @@ INPUTS = {
     'laser.flat_top_periods': 10,
     'laser.sigma_l': {'value': 2, 'unit': 'T'},
     'laser.wing_factor': 5,
-    'laser.p': 2,
-    'laser.m': 2,
+    'laser.p': 0,
+    'laser.m': 0,
     'laser.epsilon': -1,
     'laser.w_0': {'value': 75, 'unit': 'lambda'},
     'laser.zeta_x': 1.0,
@@ -55,28 +55,28 @@ INPUTS = {
     'x_plot_laser': {'value': 0.5, 'unit': 'w_0'},
     'y_plot_laser': {'value': 0.0, 'unit': 'w_0'},
     'z_plot_laser': {'value': 0.0, 'unit': 'w_0'},
-    'electron.N': 2048,
+    'electron.N': 512,
     'electron.seed': 42,
     'electron.NT': 100,
     'electron.x_0': {'value': 0.0, 'unit': 'w_0'},
     'electron.y_0': {'value': 0.0, 'unit': 'w_0'},
     'electron.z_0': {'value': 0.0, 'unit': 'w_0'},
-    'electron.R_beam': {'value': 3.0, 'unit': 'w_0'},
+    'electron.R_beam': {'value': 1.50, 'unit': 'w_0'},
     'electron.h_beam': {'value': 0.0, 'unit': 'w_0'},
     'electron.px_beam': {'value': 0.0, 'unit': 'c'},
     'electron.py_beam': {'value': 0.0, 'unit': 'c'},
-    'electron.pz_beam': {'value': 0.0, 'unit': 'c'},
+    'electron.pz_beam': {'value': -1.0, 'unit': 'c'},
     'electron.sigma_px_beam': {'value': 0.0, 'unit': 'c'},
     'electron.sigma_py_beam': {'value': 0.0, 'unit': 'c'},
     'electron.sigma_pz_beam': {'value': 0.0, 'unit': 'c'},
-    'screen.shape': 'annular',  # 'rectangular' or 'annular'
-    'screen.z_screen': {'value': -25000.0, 'unit': 'lambda'},
+    'screen.shape': 'rectangular',  # 'rectangular' or 'annular'
+    'screen.z_screen': {'value': -144000.0, 'unit': 'lambda'},
     'screen.width': {'value': 400.0, 'unit': 'lambda'},
     'screen.height': {'value': 400.0, 'unit': 'lambda'},
     'screen.Nx': 64,
     'screen.Ny': 64,
     'screen.R_min': {'value': 0.0, 'unit': 'lambda'},
-    'screen.R_max': {'value': 200.0, 'unit': 'lambda'},
+    'screen.R_max': {'value': 400.0, 'unit': 'lambda'},
     'screen.N_R': 64,
     'screen.Phi_min': {'value': 0.0, 'unit': 'pi'},
     'screen.Phi_max': {'value': 2.0, 'unit': 'pi'},
@@ -264,7 +264,7 @@ def main(*, show=False, output_root=None, inputs=None):
 
         # Plot 4-vector trajectories for up to 10 stored sample electrons
         fig_r, fig_u, fig_w = plot_electron_ensemble_trajectories(
-            sample_electron, max_electrons=10, tau_unit='T', w_0=mode.w_0, c=units.c, pulse=pulse
+            sample_electron, max_electrons=10, tau_unit='T', lambda_scale=mode.get_lambda(), c=units.c, pulse=pulse
         )
         figures.extend([fig_r, fig_u, fig_w])
         fig_r.savefig(run_dir / 'electron_position_trajectories.png', dpi=180)
