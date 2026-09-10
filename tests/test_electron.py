@@ -199,6 +199,37 @@ class ElectronTests(unittest.TestCase):
         self.assertEqual(mass_res.shape, (3, electron.tau.size))
         np.testing.assert_allclose(mass_res, 0.0, atol=1e-6)
 
+    def test_doppler_adjusted_step_size(self):
+        from superradiant_thomson.electron import compute_doppler_factor, compute_doppler_adjusted_tau_eval
+
+        c = self.units.c
+
+        base_params = self.parameters.to_dict()
+
+        # 1. At rest: Doppler factor should be 1.0
+        params_rest = dict(base_params, **{'electron.pz_beam': 0.0, 'electron.px_beam': 0.0, 'electron.py_beam': 0.0})
+        d_rest = compute_doppler_factor(params_rest, c=c)
+        self.assertAlmostEqual(d_rest, 1.0, places=12)
+
+        tau_rest = compute_doppler_adjusted_tau_eval(self.pulse, params_rest, c=c)
+        n_rest = tau_rest.size
+
+        # 2. Head-on collision (pz < 0): Doppler factor > 1.0 -> more points
+        params_headon = dict(base_params, **{'electron.pz_beam': -5.0 * c})
+        d_headon = compute_doppler_factor(params_headon, c=c)
+        p0_headon = np.sqrt(c**2 + (5.0 * c)**2)
+        d_expected = (p0_headon - (-5.0 * c)) / c
+        self.assertAlmostEqual(d_headon, d_expected, places=10)
+        self.assertGreater(d_headon, 1.0)
+
+        tau_headon = compute_doppler_adjusted_tau_eval(self.pulse, params_headon, c=c)
+        self.assertGreater(tau_headon.size, n_rest)
+
+        # 3. Co-propagating (pz > 0): Doppler factor < 1.0
+        params_coprop = dict(base_params, **{'electron.pz_beam': 5.0 * c})
+        d_coprop = compute_doppler_factor(params_coprop, c=c)
+        self.assertLess(d_coprop, 1.0)
+
 
 if __name__ == '__main__':
     unittest.main()

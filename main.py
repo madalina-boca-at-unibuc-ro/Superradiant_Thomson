@@ -46,8 +46,8 @@ INPUTS = {
     'laser.flat_top_periods': 10,
     'laser.sigma_l': {'value': 2, 'unit': 'T'},
     'laser.wing_factor': 5,
-    'laser.p': 0,
-    'laser.m': 1,
+    'laser.p': 2,
+    'laser.m': 2,
     'laser.epsilon': -1,
     'laser.w_0': {'value': 75, 'unit': 'lambda'},
     'laser.zeta_x': 1.0,
@@ -55,7 +55,7 @@ INPUTS = {
     'x_plot_laser': {'value': 0.5, 'unit': 'w_0'},
     'y_plot_laser': {'value': 0.0, 'unit': 'w_0'},
     'z_plot_laser': {'value': 0.0, 'unit': 'w_0'},
-    'electron.N': 256,
+    'electron.N': 2048,
     'electron.seed': 42,
     'electron.NT': 100,
     'electron.x_0': {'value': 0.0, 'unit': 'w_0'},
@@ -234,12 +234,15 @@ def main(*, show=False, output_root=None, inputs=None):
         wall_sec = screen_result.wall_time_seconds
         per_elec_sec = screen_result.time_per_electron_seconds
         per_elec_per_point_sec = screen_result.time_per_electron_per_point_seconds
+        cpu_per_elec_per_point_sec = screen_result.cpu_time_per_electron_per_point_seconds
         n_points = screen_geom.Nx * screen_geom.Ny
         if wall_sec is not None and per_elec_sec is not None:
             print(f'Computation wall-clock time: {wall_sec:.3f} s ({wall_sec / 60.0:.2f} min)')
             print(f'Average real time per electron ({parameters["electron.N"]} electrons): {per_elec_sec * 1000.0:.3f} ms/electron ({per_elec_sec:.6g} s/electron)')
             if per_elec_per_point_sec is not None:
                 print(f'Average real time per electron per screen point ({n_points} pixels): {per_elec_per_point_sec * 1e6:.3f} us/electron/point ({per_elec_per_point_sec * 1000.0:.6g} ms/electron/point)')
+            if cpu_per_elec_per_point_sec is not None and screen_result.num_workers is not None:
+                print(f'Single-thread CPU cost per electron per screen point ({screen_result.num_workers} threads): {cpu_per_elec_per_point_sec * 1000.0:.3f} ms/electron/point/thread ({cpu_per_elec_per_point_sec:.6g} s/electron/point/thread)')
 
         np.savez_compressed(run_dir / 'electron_trajectory.npz', tau=sample_electron.tau,
                             r=sample_electron.r, u=sample_electron.u, w=sample_electron.w,
@@ -302,6 +305,9 @@ def main(*, show=False, output_root=None, inputs=None):
             'time_per_electron_ms': per_elec_sec * 1000.0 if per_elec_sec is not None else None,
             'time_per_electron_per_point_seconds': per_elec_per_point_sec,
             'time_per_electron_per_point_us': per_elec_per_point_sec * 1e6 if per_elec_per_point_sec is not None else None,
+            'num_workers': screen_result.num_workers,
+            'cpu_time_per_electron_per_point_seconds': cpu_per_elec_per_point_sec,
+            'cpu_time_per_electron_per_point_ms': cpu_per_elec_per_point_sec * 1000.0 if cpu_per_elec_per_point_sec is not None else None,
         }
         if screen_geom.shape_type == 'rectangular':
             screen_meta['width_lambda'] = screen_geom.width / mode.get_lambda()

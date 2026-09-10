@@ -20,19 +20,35 @@ where:
 
 ---
 
-## 2. Proper Time Sampling Grid
+## 2. Proper Time Sampling Grid & Relativistic Doppler Adjustment
 
 The trajectory is solved over proper time $\tau \in [0, D]$, where $D = 2 L_{\text{wing}} + P$ is the total laser pulse duration.
 
-The grid has $N_{\tau}$ sampling points defined by parameter `electron.NT` (number of points per laser period $T = 2\pi / \omega$):
+### A. Doppler Factor Calculation (`compute_doppler_factor`)
+When an electron beam is in motion with initial mean 3-momentum $\mathbf{p} = (p_x, p_y, p_z) \neq 0$, the laser field phase experienced along the electron trajectory evolves at a rate dependent on initial momentum:
 
-$$N_{\tau} = \max\left(2, \lfloor (D / T) \times \text{NT} \rfloor + 1\right)$$
+$$\phi(\tau) = \omega_0 \left( t(\tau) - \frac{z(\tau)}{c} \right) \implies \frac{d\phi}{d\tau} = \frac{\omega_0}{m c} \left( p^0 - p_z \right)$$
 
-> [!IMPORTANT]
-> **Open Problem – Proper Time Interval Adjustment for Moving Electrons**:
-> If the electron is not initially at rest ($\mathbf{v}_0 \neq \mathbf{0}$), time dilation ($dt/d\tau = \gamma$) and phase-velocity effects mean that the proper time interval required for the electron to experience the entire laboratory laser pulse duration $D$ differs from $D$.
-> 
-> Adjustment of the integration interval $\tau \in [0, \tau_{\text{max}}]$ for non-zero initial velocities is left as an **open problem** to be addressed in future development. Currently, code testing and simulation focus on electrons initially at rest ($\mathbf{v}_0 = \mathbf{0}$).
+where $p^0 = \sqrt{(mc)^2 + p_x^2 + p_y^2 + p_z^2}$. The relativistic Doppler factor $\mathcal{D}$ is:
+
+$$\mathcal{D} = \frac{p^0 - p_z}{m c}$$
+
+### B. Numerical Step Size Adjustment (`compute_doppler_adjusted_tau_eval`)
+For an electron at rest ($\mathbf{p} = 0$), the step size $dt_r$ is determined by parameter `electron.NT` (points per laser period $T = 2\pi/\omega_0$):
+
+$$dt_r = \frac{T}{\text{NT}} = \frac{2\pi}{\omega_0 \, \text{NT}}$$
+
+For moving electrons ($\mathbf{p} \neq 0$), to ensure $\text{NT}$ sampling points per Doppler-shifted laser period in the electron frame, the step size $dt_m$ is scaled by the Doppler factor:
+
+$$dt_m = \frac{dt_r}{\mathcal{D}} = \frac{dt_r}{\frac{p^0 - p_z}{m c}}$$
+
+- **Head-on Collision ($p_z < 0$)**: $\mathcal{D} > 1.0 \implies dt_m < dt_r$. The step size shrinks to resolve fast blue-shifted phase oscillations.
+- **Co-propagating ($p_z > 0$)**: $\mathcal{D} < 1.0 \implies dt_m > dt_r$. The step size expands according to the red-shifted phase evolution.
+- **At Rest ($\mathbf{p} = 0$)**: $\mathcal{D} = 1.0 \implies dt_m = dt_r$.
+
+The total number of proper-time sampling points $N_\tau$ is:
+
+$$n_{\text{periods, doppler}} = \frac{D}{T} \times \mathcal{D}, \quad N_\tau = \max\left(2, \lfloor n_{\text{periods, doppler}} \times \text{NT} \rfloor + 1\right)$$
 
 ---
 

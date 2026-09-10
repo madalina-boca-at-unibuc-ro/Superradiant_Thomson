@@ -251,6 +251,57 @@ def solve_single_electron_trajectory(mode: LGMode, amplitude: LaserAmplitude, pu
     return r_eval, u_eval, w_eval
 
 
+def _get_param_val(parameters, key, default=None):
+    if hasattr(parameters, 'values'):
+        vals = getattr(parameters, 'values')
+        if not callable(vals) and key in vals:
+            return vals[key]
+    if isinstance(parameters, dict) and key in parameters:
+        return parameters[key]
+    try:
+        return parameters[key]
+    except (KeyError, TypeError):
+        return default
+
+
+def compute_doppler_factor(parameters, c: float, m: float = 1.0) -> float:
+    """Compute the relativistic Doppler factor for an electron beam with mean 3-momentum p_beam.
+
+    Doppler factor D = (p^0 - p_z) / (m * c), where p^0 = sqrt((m*c)^2 + px^2 + py^2 + pz^2).
+    For a laser propagating along +z:
+    - If pz < 0 (head-on collision), D > 1 (blue-shifted laser frequency in electron frame).
+    - If pz > 0 (co-propagating), D < 1 (red-shifted laser frequency in electron frame).
+    - If p = 0 (at rest), D = 1.0.
+    """
+    px = float(_get_param_val(parameters, 'electron.px_beam', 0.0))
+    py = float(_get_param_val(parameters, 'electron.py_beam', 0.0))
+    pz = float(_get_param_val(parameters, 'electron.pz_beam', 0.0))
+
+    mc = float(m * c)
+    p0 = float(np.sqrt(mc**2 + px**2 + py**2 + pz**2))
+    doppler_factor = (p0 - pz) / mc
+    return max(1e-6, doppler_factor)
+
+
+def compute_doppler_adjusted_tau_eval(pulse: TemporalFactor, parameters, c: float, m: float = 1.0) -> np.ndarray:
+    """Construct Doppler-adjusted proper-time evaluation grid tau_eval for trajectory integration.
+
+    The step size dt_m = dt_r / Doppler_factor ensures NT sampling points per Doppler-shifted laser period.
+    """
+    NT_val = _get_param_val(parameters, 'electron.NT', 100)
+    NT = int(NT_val)
+    if NT < 1:
+        raise ValueError('electron.NT must be a positive integer')
+
+    duration = pulse.timing.duration
+    period = pulse.timing.period
+    doppler_factor = compute_doppler_factor(parameters, c, m)
+
+    n_periods_doppler = (duration / period) * doppler_factor
+    n_points = max(2, int(round(n_periods_doppler * NT)) + 1)
+    return np.linspace(0.0, duration, n_points)
+
+
 def solve_electron_ensemble(mode: LGMode, amplitude: LaserAmplitude, pulse: TemporalFactor,
                             units, parameters, *, q: float = -1.0, m: float = 1.0) -> Electron:
     """Solve the relativistic electron equations of motion for an ensemble of N electrons."""
@@ -259,15 +310,7 @@ def solve_electron_ensemble(mode: LGMode, amplitude: LaserAmplitude, pulse: Temp
     if m <= 0 or c <= 0:
         raise ValueError('Mass m and speed of light c must be positive')
 
-    NT = int(parameters['electron.NT'])
-    if NT < 1:
-        raise ValueError('electron.NT must be a positive integer')
-
-    duration = pulse.timing.duration
-    period = pulse.timing.period
-    n_periods = duration / period
-    n_points = max(2, int(round(n_periods * NT)) + 1)
-    tau_eval = np.linspace(0.0, duration, n_points)
+    tau_eval = compute_doppler_adjusted_tau_eval(pulse, parameters, c=c, m=m)
 
     r0_all, u0_all = generate_electron_initial_conditions(parameters, units)
     N = r0_all.shape[0]

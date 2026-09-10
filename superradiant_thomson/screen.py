@@ -293,6 +293,7 @@ class ScreenResult:
     F_b: np.ndarray
     wall_time_seconds: float | None = None
     time_per_electron_seconds: float | None = None
+    num_workers: int | None = None
 
     def __post_init__(self):
         if not isinstance(self.geometry, ScreenGeometry):
@@ -312,6 +313,13 @@ class ScreenResult:
         if self.time_per_electron_seconds is not None:
             n_points = self.geometry.Nx * self.geometry.Ny
             return self.time_per_electron_seconds / n_points if n_points > 0 else None
+        return None
+
+    @property
+    def cpu_time_per_electron_per_point_seconds(self) -> float | None:
+        """Single-thread CPU computation time per electron per screen point in seconds across all worker threads."""
+        if self.time_per_electron_per_point_seconds is not None and self.num_workers is not None:
+            return self.time_per_electron_per_point_seconds * self.num_workers
         return None
 
     @property
@@ -515,14 +523,12 @@ def _worker_generate_solve_and_compute_chunk(args):
     """Worker task function: generates initial conditions, solves ODE trajectories, and computes screen radiation on the fly."""
     indices_chunk, mode, amplitude, pulse, units, parameters, geometry, c, q, m, method, max_stored, progress = args
 
-    NT = int(parameters['electron.NT'])
-    duration = pulse.timing.duration
-    period = pulse.timing.period
-    n_periods = duration / period
-    n_points = max(2, int(round(n_periods * NT)) + 1)
-    tau_eval = np.linspace(0.0, duration, n_points)
+    from .electron import (
+        generate_electron_initial_conditions, solve_single_electron_trajectory,
+        compute_doppler_adjusted_tau_eval,
+    )
 
-    from .electron import generate_electron_initial_conditions, solve_single_electron_trajectory
+    tau_eval = compute_doppler_adjusted_tau_eval(pulse, parameters, c=c, m=m)
 
     r0_chunk, u0_chunk = generate_electron_initial_conditions(parameters, units, indices=indices_chunk)
 
@@ -625,7 +631,8 @@ def compute_screen_emitted_field(electron: Electron, geometry: ScreenGeometry, c
     per_elec_sec = wall_sec / N_elec
 
     return ScreenResult(geometry=geometry, F_l=F_l_total, F_s=F_s_total, F_b=F_b_total,
-                        wall_time_seconds=wall_sec, time_per_electron_seconds=per_elec_sec)
+                        wall_time_seconds=wall_sec, time_per_electron_seconds=per_elec_sec,
+                        num_workers=max_workers)
 
 
 def _get_plain_params_dict(parameters) -> dict:
@@ -736,7 +743,8 @@ def compute_screen_emitted_field_from_laser_and_bunch(
         sample_electron = Electron(tau=tau_eval_out, r=np.array(sample_r), u=np.array(sample_u), w=np.array(sample_w), q=q, m=m)
 
     screen_result = ScreenResult(geometry=geometry, F_l=F_l_total, F_s=F_s_total, F_b=F_b_total,
-                                wall_time_seconds=wall_sec, time_per_electron_seconds=per_elec_sec)
+                                wall_time_seconds=wall_sec, time_per_electron_seconds=per_elec_sec,
+                                num_workers=len(task_args))
 
     return sample_electron, r0_all, u0_all, screen_result
 
