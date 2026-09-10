@@ -224,3 +224,69 @@ def generate_all_screen_breakdown_plots(result: ScreenResult, omega_idx: int | N
 
     return figs
 
+
+def plot_screen_angular_momentum_flux_density(result: ScreenResult, *, lambda_scale=None, pulse=None,
+                                               c=None, omega_idx=None, fig=None):
+    """Plot 2D heatmap(s) of spectral angular momentum flux density dF_{J_z}/domega on the observation screen.
+
+    result: ScreenResult instance.
+    lambda_scale: laser wavelength scale in atomic units for coordinate display in lambda.
+    pulse: optional TemporalFactor instance for scaling frequency to omega_0.
+    c: speed of light in atomic units.
+    omega_idx: integer frequency index to plot single frequency, or None to plot all frequencies.
+    Returns: (fig, axs).
+    """
+    geom = result.geometry
+    flux_z = result.compute_angular_momentum_flux_density(c=c)  # (N_omega, Ny, Nx)
+
+    scale_spatial, label_spatial = (float(lambda_scale), '\\lambda') if lambda_scale is not None else (1.0, 'a.u.')
+    if scale_spatial <= 0:
+        raise ValueError('lambda_scale must be positive')
+
+    x_disp = geom.x / scale_spatial
+    y_disp = geom.y / scale_spatial
+    extent = [x_disp[0] - 0.5 * geom.dx / scale_spatial, x_disp[-1] + 0.5 * geom.dx / scale_spatial,
+              y_disp[0] - 0.5 * geom.dy / scale_spatial, y_disp[-1] + 0.5 * geom.dy / scale_spatial]
+
+    scale_w, label_w = (pulse.timing.omega, '\\omega_0') if pulse is not None else (1.0, 'a.u.')
+
+    if omega_idx is not None:
+        idx = int(omega_idx)
+        if idx < 0 or idx >= geom.omega.size:
+            raise IndexError('omega_idx out of bounds')
+        indices = [idx]
+    else:
+        indices = list(range(geom.omega.size))
+
+    n_plots = len(indices)
+    if fig is None:
+        if n_plots == 1:
+            fig, axs = plt.subplots(1, 1, figsize=(6, 5), layout='constrained')
+            axs = np.array([axs])
+        else:
+            fig, axs = plt.subplots(1, n_plots, figsize=(4.5 * n_plots, 4.5), layout='constrained')
+            if n_plots == 1:
+                axs = np.array([axs])
+    else:
+        axs = np.atleast_1d(fig.axes)
+
+    for p_idx, iw in enumerate(indices):
+        ax = axs.flat[p_idx]
+        w_val = geom.omega[iw] / scale_w
+        N_val = geom.harmonics[iw] if (geom.harmonics is not None and iw < len(geom.harmonics)) else (iw + 1)
+        data_2d = flux_z[iw]
+
+        vmax = np.max(np.abs(data_2d))
+        if vmax == 0:
+            vmax = 1.0
+        im = ax.imshow(data_2d, origin='lower', extent=extent, cmap='RdBu_r', vmin=-vmax, vmax=vmax, aspect='equal')
+        cbar = fig.colorbar(im, ax=ax, shrink=0.85)
+        cbar.set_label('$d\\mathcal{F}_{J_z}/d\\omega$ (a.u.)', fontsize=9)
+
+        label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
+                   title=f'Angular Momentum Flux ($\\omega_{{{N_val}}} = {w_val:.4g}\\,{label_w}$)')
+
+    fig.suptitle(f'Spectral Angular Momentum Flux Density Along $Oz$ ($Z_0 = {geom.z_screen / scale_spatial:.1f}\\,{label_spatial}$)', fontsize=12)
+    return fig, axs
+
+

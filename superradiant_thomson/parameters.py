@@ -107,19 +107,23 @@ class ScaleRegistry:
 @dataclass(frozen=True)
 class Parameter:
     dimension: Dimension
-    default: Quantity | float | complex | None = None
-    validator: Callable[[float | complex], bool] | None = None
+    default: Quantity | float | complex | str | None = None
+    validator: Callable[[float | complex | str], bool] | None = None
     description: str = ''
     allow_complex: bool = False
+    allow_string: bool = False
 
 
 @dataclass(frozen=True)
 class ResolvedParameters:
-    values: Mapping[str, float | complex]
+    values: Mapping[str, float | complex | str]
     inputs: Mapping[str, Quantity]
 
     def __getitem__(self, name):
         return self.values[name]
+
+    def get(self, name, default=None):
+        return self.values.get(name, default)
 
     def to_dict(self):
         """JSON-compatible provenance, including defaults and original units."""
@@ -140,7 +144,7 @@ class ParameterResolver:
         self.registry = registry
         self.schema = dict(schema)
 
-    def resolve(self, inputs: Mapping[str, Quantity | Mapping | float | complex]):
+    def resolve(self, inputs: Mapping[str, Quantity | Mapping | float | complex | str]):
         unknown = inputs.keys() - self.schema.keys()
         if unknown:
             raise ResolutionError(f'Unknown parameters: {sorted(unknown)}')
@@ -157,7 +161,11 @@ class ParameterResolver:
                 value = Quantity(value)
             if not isinstance(value.unit, str):
                 raise ResolutionError(f'{name}: unit must be a string')
-            raw[name] = Quantity(_number(value.value, name, spec.allow_complex), value.unit)
+            if spec.allow_string:
+                val_str = str(value.value)
+                raw[name] = Quantity(val_str, value.unit)
+            else:
+                raw[name] = Quantity(_number(value.value, name, spec.allow_complex), value.unit)
 
         def resolve_one(name):
             if name in values:
@@ -168,6 +176,13 @@ class ParameterResolver:
                 raise ResolutionError(f'Missing dependency parameter: {name}')
             active.append(name)
             spec, quantity = self.schema[name], raw[name]
+            if spec.allow_string:
+                val_str = str(quantity.value)
+                if spec.validator is not None and not spec.validator(val_str):
+                    raise ResolutionError(f'{name}: failed validation ({spec.description})')
+                values[name] = val_str
+                active.pop()
+                return val_str
             factor = 1.0
             if quantity.unit != 'au':
                 scale = self.registry.get(quantity.unit, spec.dimension)
@@ -193,6 +208,7 @@ class ParameterResolver:
             values[name] = result
             active.pop()
             return result
+
 
         for name in self.schema:
             resolve_one(name)

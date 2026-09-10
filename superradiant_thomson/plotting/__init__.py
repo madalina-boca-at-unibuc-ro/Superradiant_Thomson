@@ -13,6 +13,7 @@ from .screen import (
     plot_screen_emitted_intensity,
     plot_screen_faraday_component_breakdown,
     generate_all_screen_breakdown_plots,
+    plot_screen_angular_momentum_flux_density,
 )
 
 __all__ = [
@@ -23,4 +24,6 @@ __all__ = [
     'plot_electron_acceleration_trajectories', 'plot_electron_ensemble_trajectories',
     'plot_screen_emitted_intensity',
     'plot_screen_faraday_component_breakdown', 'generate_all_screen_breakdown_plots',
+    'plot_screen_angular_momentum_flux_density',
 ]
+

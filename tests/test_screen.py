@@ -143,6 +143,15 @@ class TestScreenEvaluator(unittest.TestCase):
         self.assertGreater(np.max(np.abs(F1)), 0.0)
         self.assertGreater(np.max(np.abs(F2)), 0.0)
 
+    def test_invalid_method_raises_value_error(self):
+        """Test that invalid emitted field method raises ValueError."""
+        r = self.electron.r if self.electron.r.ndim == 2 else self.electron.r[0]
+        u = self.electron.u if self.electron.u.ndim == 2 else self.electron.u[0]
+        w = self.electron.w if self.electron.w.ndim == 2 else self.electron.w[0]
+        with self.assertRaises(ValueError):
+            _compute_single_electron_screen_field(r, u, w, self.electron.tau, self.geom, self.units.c, method='invalid_method')
+
+
     def test_charge_reversal_antisymmetry(self):
         """Reversing electron charge q -> -q reverses emitted field F -> -F."""
         res_plus = compute_screen_emitted_field(self.electron, self.geom, self.units.c, q=-1.0, max_workers=1)
@@ -210,6 +219,32 @@ class TestScreenEvaluator(unittest.TestCase):
         mass_res = sample_1.mass_shell_residual(self.units.c)
         np.testing.assert_allclose(mass_res, 0.0, atol=1e-6)
 
+    def test_angular_momentum_flux_density(self):
+        """Test calculation of spectral angular momentum flux density on screen."""
+        _, _, _, res = compute_screen_emitted_field_from_laser_and_bunch(
+            self.mode, self.amp, self.pulse, self.units, self.params, self.geom,
+            max_workers=1
+        )
+        flux_z = res.angular_momentum_flux_density
+        self.assertEqual(flux_z.shape, (self.geom.omega.size, self.geom.Ny, self.geom.Nx))
+        self.assertTrue(np.all(np.isfinite(flux_z)))
+
+        # Verify on-axis cancellation: at x=0, y=0 pixel, flux_z must be identically 0
+        # Create a geometry with an odd pixel count so (0,0) is an exact grid center pixel
+        odd_geom = ScreenGeometry(z_screen=1000.0, width=50.0, height=50.0, Nx=3, Ny=3,
+                                  omega=np.array([0.057]))
+        res_odd = ScreenResult(odd_geom, res.F_l[:1, :3, :3, :], res.F_s[:1, :3, :3, :], res.F_b[:1, :3, :3, :])
+        flux_odd = res_odd.compute_angular_momentum_flux_density(c=self.units.c)
+        # Center pixel (y_idx=1, x_idx=1) corresponds to x=0, y=0
+        self.assertAlmostEqual(flux_odd[0, 1, 1], 0.0, places=12)
+
+        # Verify plotting helper function
+        from superradiant_thomson.plotting.screen import plot_screen_angular_momentum_flux_density
+        fig, _ = plot_screen_angular_momentum_flux_density(res, lambda_scale=self.mode.get_lambda(), pulse=self.pulse)
+        self.assertIsNotNone(fig)
+        plt.close(fig)
+
 
 if __name__ == '__main__':
     unittest.main()
+

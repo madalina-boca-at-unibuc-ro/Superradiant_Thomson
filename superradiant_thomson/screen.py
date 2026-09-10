@@ -2,6 +2,7 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 import os
+import time
 
 import numpy as np
 
@@ -28,6 +29,12 @@ def screen_schema():
         'screen.Ny': Parameter(DIMENSIONLESS, 32, pos_int, 'number of pixels Ny along Oy'),
         'screen.N_min': Parameter(DIMENSIONLESS, 1, pos_int, 'minimum harmonic order N_min'),
         'screen.N_max': Parameter(DIMENSIONLESS, 3, pos_int, 'maximum harmonic order N_max'),
+        'screen.method': Parameter(
+            DIMENSIONLESS, 'simplified',
+            lambda x: str(x) in ('simplified', 'direct'),
+            "emitted field calculation method: 'simplified' (Form 2) or 'direct' (Form 1)",
+            allow_string=True
+        ),
     }
 
 
@@ -150,11 +157,15 @@ class ScreenResult:
     F_l: long-distance radiation component array of shape (N_omega, Ny, Nx, 6).
     F_s: short-distance velocity component array of shape (N_omega, Ny, Nx, 6).
     F_b: finite-boundary endpoint term array of shape (N_omega, Ny, Nx, 6).
+    wall_time_seconds: total real wall-clock computation time in seconds.
+    time_per_electron_seconds: average real wall-clock time per electron in seconds.
     """
     geometry: ScreenGeometry
     F_l: np.ndarray
     F_s: np.ndarray
     F_b: np.ndarray
+    wall_time_seconds: float | None = None
+    time_per_electron_seconds: float | None = None
 
     def __post_init__(self):
         if not isinstance(self.geometry, ScreenGeometry):
@@ -177,6 +188,44 @@ class ScreenResult:
     def intensity(self) -> np.ndarray:
         """Total tensor norm square sum sum_{mu < nu} |F_total^{mu nu}|^2, shape (N_omega, Ny, Nx)."""
         return np.sum(np.abs(self.F_total)**2, axis=-1)
+
+    def compute_angular_momentum_flux_density(self, c: float | None = None) -> np.ndarray:
+        """Spectral angular momentum flux density dF_{J_z}(r, omega)/domega along Oz in atomic units.
+
+        Calculated using total fields F_total = F_l + F_s + F_b according to:
+            dF_{J_z}/domega = (c / (4*pi^2)) * Re[ x * (F03 * conj(F23) - F01 * conj(F12))
+                                                 - y * (F02 * conj(F12) + F03 * conj(F13)) ]
+
+        Returns:
+            Real NumPy array of shape (N_omega, Ny, Nx).
+        """
+        if c is None:
+            c = float(AtomicUnits().c)
+
+        F = self.F_total  # (N_omega, Ny, Nx, 6)
+        F01 = F[..., 0]
+        F02 = F[..., 1]
+        F03 = F[..., 2]
+        F12 = F[..., 3]
+        F13 = F[..., 4]
+        F23 = F[..., 5]
+
+        grid_x = self.geometry.grid_x  # (Ny, Nx)
+        grid_y = self.geometry.grid_y  # (Ny, Nx)
+
+        x = grid_x[None, :, :]
+        y = grid_y[None, :, :]
+
+        term_x = F03 * np.conj(F23) - F01 * np.conj(F12)
+        term_y = F02 * np.conj(F12) + F03 * np.conj(F13)
+
+        prefactor = c / (4.0 * np.pi**2)
+        return prefactor * np.real(x * term_x - y * term_y)
+
+    @property
+    def angular_momentum_flux_density(self) -> np.ndarray:
+        """Spectral angular momentum flux density dF_{J_z}/domega array of shape (N_omega, Ny, Nx)."""
+        return self.compute_angular_momentum_flux_density()
 
 
 def _compute_single_electron_screen_field(r, u, w, tau, geometry: ScreenGeometry, c: float,
@@ -274,7 +323,7 @@ def _compute_single_electron_screen_field(r, u, w, tau, geometry: ScreenGeometry
                         F_s[iw, j, i, comp] = np.sum(w_s * nu_u[:, comp])
                         F_b[iw, j, i, comp] = b_term[comp]
 
-            else:
+            elif method == 'direct':
                 # Form 1 (FT-direct.tex)
                 w_dot_n = w0 - (wx * nx + wy * ny + wz * nz)
                 u_dot_n_sq = u_dot_n * u_dot_n
@@ -302,6 +351,9 @@ def _compute_single_electron_screen_field(r, u, w, tau, geometry: ScreenGeometry
 
                     F_l[iw, j, i, :] = np.sum(w_l * F_l_tens, axis=0)
                     F_s[iw, j, i, :] = np.sum(w_s * F_s_tens, axis=0)
+
+            else:
+                raise ValueError(f"Unknown emitted field calculation method: {method!r}. Expected 'simplified' or 'direct'.")
 
     return F_l, F_s, F_b
 
@@ -406,6 +458,7 @@ def compute_screen_emitted_field(electron: Electron, geometry: ScreenGeometry, c
     F_s_total = np.zeros(shape, dtype=complex)
     F_b_total = np.zeros(shape, dtype=complex)
 
+    t_start = time.perf_counter()
     if max_workers == 1:
         for i in range(N_elec):
             fl_i, fs_i, fb_i = _compute_single_electron_screen_field(
@@ -414,27 +467,30 @@ def compute_screen_emitted_field(electron: Electron, geometry: ScreenGeometry, c
             F_l_total += fl_i
             F_s_total += fs_i
             F_b_total += fb_i
-        return ScreenResult(geometry=geometry, F_l=F_l_total, F_s=F_s_total, F_b=F_b_total)
+    else:
+        # Partition electron indices into chunks for worker processes
+        chunks_r = np.array_split(r_all, max_workers, axis=0)
+        chunks_u = np.array_split(u_all, max_workers, axis=0)
+        chunks_w = np.array_split(w_all, max_workers, axis=0)
 
-    # Partition electron indices into chunks for worker processes
-    chunks_r = np.array_split(r_all, max_workers, axis=0)
-    chunks_u = np.array_split(u_all, max_workers, axis=0)
-    chunks_w = np.array_split(w_all, max_workers, axis=0)
+        task_args = [
+            (chunks_r[k], chunks_u[k], chunks_w[k], tau, geometry, c, q, m, method)
+            for k in range(len(chunks_r)) if chunks_r[k].shape[0] > 0
+        ]
 
-    task_args = [
-        (chunks_r[k], chunks_u[k], chunks_w[k], tau, geometry, c, q, m, method)
-        for k in range(len(chunks_r)) if chunks_r[k].shape[0] > 0
-    ]
+        with ProcessPoolExecutor(max_workers=len(task_args)) as executor:
+            futures = [executor.submit(_worker_compute_chunk, arg) for arg in task_args]
+            for fut in as_completed(futures):
+                fl_c, fs_c, fb_c = fut.result()
+                F_l_total += fl_c
+                F_s_total += fs_c
+                F_b_total += fb_c
+    t_end = time.perf_counter()
+    wall_sec = float(t_end - t_start)
+    per_elec_sec = wall_sec / N_elec
 
-    with ProcessPoolExecutor(max_workers=len(task_args)) as executor:
-        futures = [executor.submit(_worker_compute_chunk, arg) for arg in task_args]
-        for fut in as_completed(futures):
-            fl_c, fs_c, fb_c = fut.result()
-            F_l_total += fl_c
-            F_s_total += fs_c
-            F_b_total += fb_c
-
-    return ScreenResult(geometry=geometry, F_l=F_l_total, F_s=F_s_total, F_b=F_b_total)
+    return ScreenResult(geometry=geometry, F_l=F_l_total, F_s=F_s_total, F_b=F_b_total,
+                        wall_time_seconds=wall_sec, time_per_electron_seconds=per_elec_sec)
 
 
 def _get_plain_params_dict(parameters) -> dict:
@@ -462,6 +518,8 @@ def compute_screen_emitted_field_from_laser_and_bunch(
         screen_result: ScreenResult dataclass holding F_l, F_s, F_b tensors.
     """
     params_dict = _get_plain_params_dict(parameters)
+    if 'screen.method' in params_dict:
+        method = str(params_dict['screen.method'])
     N_elec = int(params_dict['electron.N'])
     if N_elec < 1:
         raise ValueError('electron.N must be a positive integer')
@@ -496,6 +554,7 @@ def compute_screen_emitted_field_from_laser_and_bunch(
     all_w_stored = {}
     tau_eval_out = None
 
+    t_start = time.perf_counter()
     if len(task_args) == 1:
         fl_c, fs_c, fb_c, r0_c, u0_c, r_s, u_s, w_s, tau_e = _worker_generate_solve_and_compute_chunk(task_args[0])
         F_l_total += fl_c
@@ -522,6 +581,9 @@ def compute_screen_emitted_field_from_laser_and_bunch(
                 all_u_stored.update(u_s)
                 all_w_stored.update(w_s)
                 tau_eval_out = tau_e
+    t_end = time.perf_counter()
+    wall_sec = float(t_end - t_start)
+    per_elec_sec = wall_sec / N_elec
 
     # Assemble complete initial condition arrays in global index order
     r0_all = np.vstack([r0_chunks_map[k] for k in range(len(task_args))])
@@ -538,7 +600,8 @@ def compute_screen_emitted_field_from_laser_and_bunch(
     else:
         sample_electron = Electron(tau=tau_eval_out, r=np.array(sample_r), u=np.array(sample_u), w=np.array(sample_w), q=q, m=m)
 
-    screen_result = ScreenResult(geometry=geometry, F_l=F_l_total, F_s=F_s_total, F_b=F_b_total)
+    screen_result = ScreenResult(geometry=geometry, F_l=F_l_total, F_s=F_s_total, F_b=F_b_total,
+                                wall_time_seconds=wall_sec, time_per_electron_seconds=per_elec_sec)
 
     return sample_electron, r0_all, u0_all, screen_result
 

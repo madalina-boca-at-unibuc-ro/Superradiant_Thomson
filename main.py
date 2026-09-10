@@ -46,8 +46,8 @@ INPUTS = {
     'laser.flat_top_periods': 10,
     'laser.sigma_l': {'value': 2, 'unit': 'T'},
     'laser.wing_factor': 5,
-    'laser.p': 2,
-    'laser.m': 2,
+    'laser.p': 0,
+    'laser.m': 1,
     'laser.epsilon': -1,
     'laser.w_0': {'value': 75, 'unit': 'lambda'},
     'laser.zeta_x': 1.0,
@@ -55,7 +55,7 @@ INPUTS = {
     'x_plot_laser': {'value': 0.5, 'unit': 'w_0'},
     'y_plot_laser': {'value': 0.0, 'unit': 'w_0'},
     'z_plot_laser': {'value': 0.0, 'unit': 'w_0'},
-    'electron.N': 1024,
+    'electron.N': 2048,
     'electron.seed': 42,
     'electron.NT': 100,
     'electron.x_0': {'value': 0.0, 'unit': 'w_0'},
@@ -76,6 +76,7 @@ INPUTS = {
     'screen.Ny': 64,
     'screen.N_min': 1,
     'screen.N_max': 3,
+    'screen.method': 'direct',  # 'simplified' (Form 2) or 'direct' (Form 1)
 }
 
 
@@ -134,6 +135,7 @@ def main(*, show=False, output_root=None):
             plot_temporal_factor, plot_lg_intensity, plot_laser_fields,
             plot_electron_initial_distribution, plot_electron_ensemble_trajectories,
             plot_screen_emitted_intensity, generate_all_screen_breakdown_plots,
+            plot_screen_angular_momentum_flux_density,
         )
         import matplotlib
         if not show:
@@ -209,7 +211,8 @@ def main(*, show=False, output_root=None):
 
         # Compute trajectories and multi-frequency FT Faraday tensor on 2D screen in parallel workers
         screen_geom = ScreenGeometry.from_parameters(parameters, units=units)
-        print(f'Screen geometry initialized at z_screen = {screen_geom.z_screen / mode.get_lambda():g} lambda.')
+        screen_method = str(parameters.get('screen.method', 'simplified'))
+        print(f'Screen geometry initialized at z_screen = {screen_geom.z_screen / mode.get_lambda():g} lambda using calculation method: {screen_method!r}.')
         print('Calculated non-linear Thomson frequencies:')
         for h_idx, w_au in enumerate(screen_geom.omega):
             n_val = screen_geom.harmonics[h_idx] if screen_geom.harmonics is not None else (h_idx + 1)
@@ -219,6 +222,12 @@ def main(*, show=False, output_root=None):
         sample_electron, r0_all, u0_all, screen_result = compute_screen_emitted_field_from_laser_and_bunch(
             mode, amplitude, pulse, units, parameters, screen_geom, max_stored_trajectories=10
         )
+        wall_sec = screen_result.wall_time_seconds
+        per_elec_sec = screen_result.time_per_electron_seconds
+        if wall_sec is not None and per_elec_sec is not None:
+            print(f'Computation wall-clock time: {wall_sec:.3f} s ({wall_sec / 60.0:.2f} min)')
+            print(f'Average real time per electron ({parameters["electron.N"]} electrons): {per_elec_sec * 1000.0:.3f} ms/electron ({per_elec_sec:.6g} s/electron)')
+
         np.savez_compressed(run_dir / 'electron_trajectory.npz', tau=sample_electron.tau,
                             r=sample_electron.r, u=sample_electron.u, w=sample_electron.w,
                             r0_all=r0_all, u0_all=u0_all)
@@ -260,13 +269,21 @@ def main(*, show=False, output_root=None):
             'Ny': screen_geom.Ny,
             'N_min': int(parameters['screen.N_min']),
             'N_max': int(parameters['screen.N_max']),
+            'method': str(parameters.get('screen.method', 'simplified')),
             'N_omega': screen_geom.omega.size,
             'omega_harmonics_au': [float(w) for w in screen_geom.omega],
             'shape': list(screen_result.F_total.shape),
+            'wall_time_seconds': wall_sec,
+            'time_per_electron_seconds': per_elec_sec,
+            'time_per_electron_ms': per_elec_sec * 1000.0 if per_elec_sec is not None else None,
         }
         fig_screen, _ = plot_screen_emitted_intensity(screen_result, lambda_scale=mode.get_lambda(), pulse=pulse)
         figures.append(fig_screen)
         fig_screen.savefig(run_dir / 'screen_emitted_intensity.png', dpi=180)
+
+        fig_am, _ = plot_screen_angular_momentum_flux_density(screen_result, lambda_scale=mode.get_lambda(), pulse=pulse, c=units.c)
+        figures.append(fig_am)
+        fig_am.savefig(run_dir / 'screen_angular_momentum_flux.png', dpi=180)
 
         # Generate 18 breakdown figures for each calculated frequency in distinct subfolders
         # Each figure is a 2x2 panel: Real, Imag, Modulus, Phase
