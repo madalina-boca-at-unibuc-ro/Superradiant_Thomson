@@ -136,7 +136,7 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
     # 1. Real Part
     ax = axs[0, 0]
     max_re = np.max(np.abs(re_part)) or 1.0
-    im_re = _draw_2d_heatmap(ax, re_part, geom, scale_spatial, cmap='coolwarm', vmin=-max_re, vmax=max_re)
+    im_re = _draw_2d_heatmap(ax, re_part, geom, scale_spatial, cmap='RdBu_r', vmin=-max_re, vmax=max_re)
     cbar = fig.colorbar(im_re, ax=ax, shrink=0.85)
     cbar.set_label(f'Re($\\tilde{{{name}}}$)', fontsize=9)
     label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
@@ -145,7 +145,7 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
     # 2. Imaginary Part
     ax = axs[0, 1]
     max_im = np.max(np.abs(im_part)) or 1.0
-    im_im = _draw_2d_heatmap(ax, im_part, geom, scale_spatial, cmap='coolwarm', vmin=-max_im, vmax=max_im)
+    im_im = _draw_2d_heatmap(ax, im_part, geom, scale_spatial, cmap='RdBu_r', vmin=-max_im, vmax=max_im)
     cbar = fig.colorbar(im_im, ax=ax, shrink=0.85)
     cbar.set_label(f'Im($\\tilde{{{name}}}$)', fontsize=9)
     label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
@@ -153,7 +153,7 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
 
     # 3. Modulus Part
     ax = axs[1, 0]
-    im_mod = _draw_2d_heatmap(ax, mod_part, geom, scale_spatial, cmap='inferno', vmin=0, vmax=np.max(mod_part) or 1.0)
+    im_mod = _draw_2d_heatmap(ax, mod_part, geom, scale_spatial, cmap='viridis', vmin=0, vmax=np.max(mod_part) or 1.0)
     cbar = fig.colorbar(im_mod, ax=ax, shrink=0.85)
     cbar.set_label(f'$|\\tilde{{{name}}}|$', fontsize=9)
     label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
