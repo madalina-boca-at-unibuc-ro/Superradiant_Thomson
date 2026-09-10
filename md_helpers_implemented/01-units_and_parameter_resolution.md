@@ -52,7 +52,7 @@ provenance = parameters.to_dict()
 
 A bare number or unit `au` means atomic units of the parameter's declared
 physical dimension. Other unit names are case-sensitive. Built-in names are
-`bohr` (alias `a_B`), `m`, `nm`, `um`, `s`, `fs`, `c`, `m/s`, and `rad/s`.
+`bohr` (alias `a_B`), `m`, `nm`, `um`, `s`, `fs`, `c`, `m/s`, `rad/s`, and `pi` (aliases `Pi`, `PI`, where $1\text{ pi} = \pi \text{ rad}$).
 Angular frequency uses radians per time; ordinary Hz is deliberately not an
 alias, since converting cycle frequency requires a factor of 2*pi.
 

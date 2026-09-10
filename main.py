@@ -55,7 +55,7 @@ INPUTS = {
     'x_plot_laser': {'value': 0.5, 'unit': 'w_0'},
     'y_plot_laser': {'value': 0.0, 'unit': 'w_0'},
     'z_plot_laser': {'value': 0.0, 'unit': 'w_0'},
-    'electron.N': 2048,
+    'electron.N': 256,
     'electron.seed': 42,
     'electron.NT': 100,
     'electron.x_0': {'value': 0.0, 'unit': 'w_0'},
@@ -69,11 +69,18 @@ INPUTS = {
     'electron.sigma_px_beam': {'value': 0.0, 'unit': 'c'},
     'electron.sigma_py_beam': {'value': 0.0, 'unit': 'c'},
     'electron.sigma_pz_beam': {'value': 0.0, 'unit': 'c'},
+    'screen.shape': 'annular',  # 'rectangular' or 'annular'
     'screen.z_screen': {'value': -25000.0, 'unit': 'lambda'},
     'screen.width': {'value': 400.0, 'unit': 'lambda'},
     'screen.height': {'value': 400.0, 'unit': 'lambda'},
     'screen.Nx': 64,
     'screen.Ny': 64,
+    'screen.R_min': {'value': 0.0, 'unit': 'lambda'},
+    'screen.R_max': {'value': 200.0, 'unit': 'lambda'},
+    'screen.N_R': 64,
+    'screen.Phi_min': {'value': 0.0, 'unit': 'pi'},
+    'screen.Phi_max': {'value': 2.0, 'unit': 'pi'},
+    'screen.N_Phi': 64,
     'screen.N_min': 1,
     'screen.N_max': 3,
     'screen.method': 'direct',  # 'simplified' (Form 2) or 'direct' (Form 1)
@@ -92,8 +99,9 @@ def initialize(inputs):
     return units, parameters, pulse
 
 
-def sample_pulse():
-    units, parameters, pulse = initialize(INPUTS)
+def sample_pulse(inputs=None):
+    inputs = inputs if inputs is not None else INPUTS
+    units, parameters, pulse = initialize(inputs)
     timing = pulse.timing
     # At z=0, laboratory time equals laser time s=t-z/c.
     time = np.linspace(0.0, timing.duration, 1001)
@@ -112,7 +120,8 @@ def sample_pulse():
     return units, parameters, pulse, time, envelope, temporal_factor
 
 
-def main(*, show=False, output_root=None):
+def main(*, show=False, output_root=None, inputs=None):
+    inputs = inputs if inputs is not None else INPUTS
     from dataclasses import asdict
     from datetime import datetime, timezone
     import platform
@@ -128,7 +137,7 @@ def main(*, show=False, output_root=None):
                      'scipy': scipy.__version__},
     }
     write_json(run_dir / 'run.json', metadata)
-    write_json(run_dir / 'inputs.json', INPUTS)
+    write_json(run_dir / 'inputs.json', inputs)
     figures = []
     try:
         from superradiant_thomson.plotting import (
@@ -142,7 +151,7 @@ def main(*, show=False, output_root=None):
             matplotlib.use('Agg')
         import matplotlib.pyplot as plt
 
-        result = sample_pulse()
+        result = sample_pulse(inputs=inputs)
         units, parameters, pulse, time, envelope, temporal_factor = result
         mode = LGMode.from_parameters(parameters, units)
         amplitude = LaserAmplitude.from_parameters(parameters, units)
@@ -212,7 +221,7 @@ def main(*, show=False, output_root=None):
         # Compute trajectories and multi-frequency FT Faraday tensor on 2D screen in parallel workers
         screen_geom = ScreenGeometry.from_parameters(parameters, units=units)
         screen_method = str(parameters.get('screen.method', 'simplified'))
-        print(f'Screen geometry initialized at z_screen = {screen_geom.z_screen / mode.get_lambda():g} lambda using calculation method: {screen_method!r}.')
+        print(f'Screen geometry ({screen_geom.shape_type}) initialized at z_screen = {screen_geom.z_screen / mode.get_lambda():g} lambda using calculation method: {screen_method!r}.')
         print('Calculated non-linear Thomson frequencies:')
         for h_idx, w_au in enumerate(screen_geom.omega):
             n_val = screen_geom.harmonics[h_idx] if screen_geom.harmonics is not None else (h_idx + 1)
@@ -224,9 +233,13 @@ def main(*, show=False, output_root=None):
         )
         wall_sec = screen_result.wall_time_seconds
         per_elec_sec = screen_result.time_per_electron_seconds
+        per_elec_per_point_sec = screen_result.time_per_electron_per_point_seconds
+        n_points = screen_geom.Nx * screen_geom.Ny
         if wall_sec is not None and per_elec_sec is not None:
             print(f'Computation wall-clock time: {wall_sec:.3f} s ({wall_sec / 60.0:.2f} min)')
             print(f'Average real time per electron ({parameters["electron.N"]} electrons): {per_elec_sec * 1000.0:.3f} ms/electron ({per_elec_sec:.6g} s/electron)')
+            if per_elec_per_point_sec is not None:
+                print(f'Average real time per electron per screen point ({n_points} pixels): {per_elec_per_point_sec * 1e6:.3f} us/electron/point ({per_elec_per_point_sec * 1000.0:.6g} ms/electron/point)')
 
         np.savez_compressed(run_dir / 'electron_trajectory.npz', tau=sample_electron.tau,
                             r=sample_electron.r, u=sample_electron.u, w=sample_electron.w,
@@ -255,18 +268,29 @@ def main(*, show=False, output_root=None):
         fig_u.savefig(run_dir / 'electron_velocity_trajectories.png', dpi=180)
         fig_w.savefig(run_dir / 'electron_acceleration_trajectories.png', dpi=180)
 
-        np.savez_compressed(run_dir / 'screen_emitted_field.npz',
-                            omega=screen_geom.omega, x=screen_geom.x, y=screen_geom.y,
-                            z_screen=screen_geom.z_screen, F_l=screen_result.F_l,
-                            F_s=screen_result.F_s, F_b=screen_result.F_b,
-                            F_total=screen_result.F_total)
-        metadata['screen_emitted_field'] = {
+        savez_kwargs = {
+            'omega': screen_geom.omega,
+            'grid_x': screen_geom.grid_x,
+            'grid_y': screen_geom.grid_y,
+            'z_screen': screen_geom.z_screen,
+            'F_l': screen_result.F_l,
+            'F_s': screen_result.F_s,
+            'F_b': screen_result.F_b,
+            'F_total': screen_result.F_total,
+        }
+        if screen_geom.shape_type == 'rectangular':
+            savez_kwargs['x'] = screen_geom.x
+            savez_kwargs['y'] = screen_geom.y
+
+        np.savez_compressed(run_dir / 'screen_emitted_field.npz', **savez_kwargs)
+
+        screen_meta = {
+            'shape_type': screen_geom.shape_type,
             'z_screen_au': screen_geom.z_screen,
             'z_screen_lambda': screen_geom.z_screen / mode.get_lambda(),
-            'width_lambda': screen_geom.width / mode.get_lambda(),
-            'height_lambda': screen_geom.height / mode.get_lambda(),
             'Nx': screen_geom.Nx,
             'Ny': screen_geom.Ny,
+            'N_points': n_points,
             'N_min': int(parameters['screen.N_min']),
             'N_max': int(parameters['screen.N_max']),
             'method': str(parameters.get('screen.method', 'simplified')),
@@ -276,7 +300,18 @@ def main(*, show=False, output_root=None):
             'wall_time_seconds': wall_sec,
             'time_per_electron_seconds': per_elec_sec,
             'time_per_electron_ms': per_elec_sec * 1000.0 if per_elec_sec is not None else None,
+            'time_per_electron_per_point_seconds': per_elec_per_point_sec,
+            'time_per_electron_per_point_us': per_elec_per_point_sec * 1e6 if per_elec_per_point_sec is not None else None,
         }
+        if screen_geom.shape_type == 'rectangular':
+            screen_meta['width_lambda'] = screen_geom.width / mode.get_lambda()
+            screen_meta['height_lambda'] = screen_geom.height / mode.get_lambda()
+        else:
+            screen_meta['R_min_lambda'] = screen_geom.R_min / mode.get_lambda()
+            screen_meta['R_max_lambda'] = screen_geom.R_max / mode.get_lambda()
+            screen_meta['Phi_min_rad'] = screen_geom.Phi_min
+            screen_meta['Phi_max_rad'] = screen_geom.Phi_max
+        metadata['screen_emitted_field'] = screen_meta
         fig_screen, _ = plot_screen_emitted_intensity(screen_result, lambda_scale=mode.get_lambda(), pulse=pulse)
         figures.append(fig_screen)
         fig_screen.savefig(run_dir / 'screen_emitted_intensity.png', dpi=180)

@@ -20,13 +20,26 @@ def screen_schema():
     pos_int = lambda x: x >= 1 and x.is_integer()
     finite = lambda x: bool(np.isfinite(x))
     pos_finite = lambda x: bool(np.isfinite(x) and x > 0)
+    nonneg_finite = lambda x: bool(np.isfinite(x) and x >= 0)
 
     return {
+        'screen.shape': Parameter(
+            DIMENSIONLESS, 'rectangular',
+            lambda x: str(x) in ('rectangular', 'annular'),
+            "observation screen shape: 'rectangular' or 'annular'",
+            allow_string=True
+        ),
         'screen.z_screen': Parameter(LENGTH, Quantity(25000.0, 'lambda'), finite, 'screen z-coordinate Z_screen'),
-        'screen.width': Parameter(LENGTH, Quantity(400.0, 'lambda'), pos_finite, 'screen width W along Ox'),
-        'screen.height': Parameter(LENGTH, Quantity(400.0, 'lambda'), pos_finite, 'screen height H_s along Oy'),
-        'screen.Nx': Parameter(DIMENSIONLESS, 32, pos_int, 'number of pixels Nx along Ox'),
-        'screen.Ny': Parameter(DIMENSIONLESS, 32, pos_int, 'number of pixels Ny along Oy'),
+        'screen.width': Parameter(LENGTH, Quantity(400.0, 'lambda'), pos_finite, 'rectangular screen width W along Ox'),
+        'screen.height': Parameter(LENGTH, Quantity(400.0, 'lambda'), pos_finite, 'rectangular screen height H_s along Oy'),
+        'screen.Nx': Parameter(DIMENSIONLESS, 32, pos_int, 'number of pixels Nx along Ox for rectangular screen'),
+        'screen.Ny': Parameter(DIMENSIONLESS, 32, pos_int, 'number of pixels Ny along Oy for rectangular screen'),
+        'screen.R_min': Parameter(LENGTH, Quantity(0.0, 'lambda'), nonneg_finite, 'annular screen minimum radius R_min'),
+        'screen.R_max': Parameter(LENGTH, Quantity(200.0, 'lambda'), pos_finite, 'annular screen maximum radius R_max'),
+        'screen.N_R': Parameter(DIMENSIONLESS, 32, pos_int, 'number of radial rings N_R for annular screen'),
+        'screen.Phi_min': Parameter(DIMENSIONLESS, Quantity(0.0, 'pi'), finite, 'annular screen minimum angle Phi_min'),
+        'screen.Phi_max': Parameter(DIMENSIONLESS, Quantity(2.0, 'pi'), finite, 'annular screen maximum angle Phi_max'),
+        'screen.N_Phi': Parameter(DIMENSIONLESS, 32, pos_int, 'number of azimuthal sectors N_Phi for annular screen'),
         'screen.N_min': Parameter(DIMENSIONLESS, 1, pos_int, 'minimum harmonic order N_min'),
         'screen.N_max': Parameter(DIMENSIONLESS, 3, pos_int, 'maximum harmonic order N_max'),
         'screen.method': Parameter(
@@ -40,55 +53,81 @@ def screen_schema():
 
 @dataclass(frozen=True)
 class ScreenGeometry:
-    """Rectangular 2D observation screen geometry and frequency grid.
-
-    z_screen: screen z-position in atomic units.
-    width: screen width along Ox in atomic units.
-    height: screen height along Oy in atomic units.
-    Nx: pixel count along Ox.
-    Ny: pixel count along Oy.
-    omega: 1D array of frequencies in atomic units, shape (N_omega,).
-    """
+    """Rectangular or Annular 2D observation screen geometry and frequency grid."""
     z_screen: float
-    width: float
-    height: float
-    Nx: int
-    Ny: int
     omega: np.ndarray
     harmonics: np.ndarray | None = None
+    shape_type: str = 'rectangular'
+    # Rectangular parameters:
+    width: float | None = None
+    height: float | None = None
+    Nx_rect: int | None = None
+    Ny_rect: int | None = None
+    # Annular parameters:
+    R_min: float | None = None
+    R_max: float | None = None
+    N_R: int | None = None
+    Phi_min: float | None = None
+    Phi_max: float | None = None
+    N_Phi: int | None = None
 
-    def __post_init__(self):
-        for name in ('z_screen', 'width', 'height'):
-            val = float(getattr(self, name))
-            if not np.isfinite(val):
-                raise ValueError(f'{name} must be finite')
-            object.__setattr__(self, name, val)
-        if self.width <= 0 or self.height <= 0:
-            raise ValueError('Screen width and height must be positive')
-
-        nx, ny = int(self.Nx), int(self.Ny)
-        if nx < 1 or ny < 1:
-            raise ValueError('Nx and Ny must be positive integers')
-        object.__setattr__(self, 'Nx', nx)
-        object.__setattr__(self, 'Ny', ny)
-
-        om = np.asarray(self.omega, dtype=float)
+    def __init__(self, z_screen: float, width: float | None = None, height: float | None = None,
+                 Nx: int | None = None, Ny: int | None = None, omega: np.ndarray | None = None,
+                 harmonics: np.ndarray | None = None, shape_type: str = 'rectangular',
+                 R_min: float | None = None, R_max: float | None = None, N_R: int | None = None,
+                 Phi_min: float | None = None, Phi_max: float | None = None, N_Phi: int | None = None):
+        object.__setattr__(self, 'z_screen', float(z_screen))
+        object.__setattr__(self, 'shape_type', str(shape_type))
+        if omega is None:
+            raise ValueError('omega must be provided')
+        om = np.asarray(omega, dtype=float)
         if om.ndim != 1 or om.size < 1 or not np.all(np.isfinite(om)) or np.any(om <= 0):
             raise ValueError('omega must be a 1D array of positive frequencies')
         object.__setattr__(self, 'omega', om)
 
-        if self.harmonics is not None:
-            h = np.asarray(self.harmonics, dtype=int)
-            object.__setattr__(self, 'harmonics', h)
+        if harmonics is not None:
+            object.__setattr__(self, 'harmonics', np.asarray(harmonics, dtype=int))
+        else:
+            object.__setattr__(self, 'harmonics', None)
+
+        if self.shape_type == 'rectangular':
+            w = float(width) if width is not None else 400.0
+            h = float(height) if height is not None else 400.0
+            nx = int(Nx) if Nx is not None else 32
+            ny = int(Ny) if Ny is not None else 32
+            if w <= 0 or h <= 0 or nx < 1 or ny < 1:
+                raise ValueError('Rectangular screen dimensions and pixel counts must be positive')
+            object.__setattr__(self, 'width', w)
+            object.__setattr__(self, 'height', h)
+            object.__setattr__(self, 'Nx_rect', nx)
+            object.__setattr__(self, 'Ny_rect', ny)
+        elif self.shape_type == 'annular':
+            rmin = float(R_min) if R_min is not None else 0.0
+            rmax = float(R_max) if R_max is not None else 200.0
+            nr = int(N_R) if N_R is not None else 32
+            pmin = float(Phi_min) if Phi_min is not None else 0.0
+            pmax = float(Phi_max) if Phi_max is not None else 2.0 * np.pi
+            nphi = int(N_Phi) if N_Phi is not None else 32
+            if rmin < 0 or rmax <= rmin:
+                raise ValueError(f'Annular screen R_max ({rmax}) must be strictly greater than R_min ({rmin}) >= 0')
+            if pmax <= pmin:
+                raise ValueError(f'Annular screen Phi_max ({pmax}) must be strictly greater than Phi_min ({pmin})')
+            if nr < 1 or nphi < 1:
+                raise ValueError('Annular screen N_R and N_Phi must be positive integers')
+            object.__setattr__(self, 'R_min', rmin)
+            object.__setattr__(self, 'R_max', rmax)
+            object.__setattr__(self, 'N_R', nr)
+            object.__setattr__(self, 'Phi_min', pmin)
+            object.__setattr__(self, 'Phi_max', pmax)
+            object.__setattr__(self, 'N_Phi', nphi)
+        else:
+            raise ValueError(f"Unknown screen shape_type: {self.shape_type!r}. Expected 'rectangular' or 'annular'.")
 
     @classmethod
     def from_parameters(cls, parameters, units=None):
         """Construct ScreenGeometry from resolved parameters dictionary using non-linear Thomson frequencies."""
+        shape_type = str(parameters.get('screen.shape', 'rectangular'))
         z_screen = float(parameters['screen.z_screen'])
-        width = float(parameters['screen.width'])
-        height = float(parameters['screen.height'])
-        Nx = int(parameters['screen.Nx'])
-        Ny = int(parameters['screen.Ny'])
         N_min = int(parameters['screen.N_min'])
         N_max = int(parameters['screen.N_max'])
         if N_min > N_max:
@@ -116,37 +155,125 @@ class ScreenGeometry:
 
         harmonics = np.arange(N_min, N_max + 1, dtype=int)
         omega = harmonics.astype(float) * omega_0 * (nL_dot_q / ns_dot_q)
-        return cls(z_screen=z_screen, width=width, height=height, Nx=Nx, Ny=Ny, omega=omega, harmonics=harmonics)
+
+        if shape_type == 'rectangular':
+            width = float(parameters['screen.width'])
+            height = float(parameters['screen.height'])
+            Nx = int(parameters['screen.Nx'])
+            Ny = int(parameters['screen.Ny'])
+            return cls(z_screen=z_screen, width=width, height=height, Nx=Nx, Ny=Ny,
+                       omega=omega, harmonics=harmonics, shape_type='rectangular')
+        elif shape_type == 'annular':
+            R_min = float(parameters['screen.R_min'])
+            R_max = float(parameters['screen.R_max'])
+            N_R = int(parameters['screen.N_R'])
+            Phi_min = float(parameters['screen.Phi_min'])
+            Phi_max = float(parameters['screen.Phi_max'])
+            N_Phi = int(parameters['screen.N_Phi'])
+            return cls(z_screen=z_screen, omega=omega, harmonics=harmonics, shape_type='annular',
+                       R_min=R_min, R_max=R_max, N_R=N_R, Phi_min=Phi_min, Phi_max=Phi_max, N_Phi=N_Phi)
+        else:
+            raise ValueError(f"Unknown screen.shape: {shape_type!r}. Expected 'rectangular' or 'annular'.")
+
+    @property
+    def Nx(self) -> int:
+        return self.Nx_rect if self.shape_type == 'rectangular' else self.N_R
+
+    @property
+    def Ny(self) -> int:
+        return self.Ny_rect if self.shape_type == 'rectangular' else self.N_Phi
 
     @property
     def dx(self) -> float:
-        return self.width / self.Nx
+        if self.shape_type == 'rectangular':
+            return self.width / self.Nx
+        raise AttributeError("Annular geometry does not have uniform Cartesian dx")
 
     @property
     def dy(self) -> float:
-        return self.height / self.Ny
+        if self.shape_type == 'rectangular':
+            return self.height / self.Ny
+        raise AttributeError("Annular geometry does not have uniform Cartesian dy")
 
     @property
     def x(self) -> np.ndarray:
-        """Pixel center x-coordinates, shape (Nx,)."""
-        return -0.5 * self.width + (np.arange(self.Nx) + 0.5) * self.dx
+        if self.shape_type == 'rectangular':
+            return -0.5 * self.width + (np.arange(self.Nx) + 0.5) * self.dx
+        raise AttributeError("Annular geometry use grid_x for Cartesian evaluation points")
 
     @property
     def y(self) -> np.ndarray:
-        """Pixel center y-coordinates, shape (Ny,)."""
-        return -0.5 * self.height + (np.arange(self.Ny) + 0.5) * self.dy
+        if self.shape_type == 'rectangular':
+            return -0.5 * self.height + (np.arange(self.Ny) + 0.5) * self.dy
+        raise AttributeError("Annular geometry use grid_y for Cartesian evaluation points")
 
     @property
     def grid_x(self) -> np.ndarray:
-        """2D grid x-coordinates, shape (Ny, Nx)."""
-        xx, _ = np.meshgrid(self.x, self.y)
-        return xx
+        """2D grid x-coordinates, shape (Ny, Nx) or (N_Phi, N_R)."""
+        if self.shape_type == 'rectangular':
+            xx, _ = np.meshgrid(self.x, self.y)
+            return xx
+        else:
+            r_mesh, phi_mesh = np.meshgrid(self.r_centers, self.phi_centers)
+            return r_mesh * np.cos(phi_mesh)
 
     @property
     def grid_y(self) -> np.ndarray:
-        """2D grid y-coordinates, shape (Ny, Nx)."""
-        _, yy = np.meshgrid(self.x, self.y)
-        return yy
+        """2D grid y-coordinates, shape (Ny, Nx) or (N_Phi, N_R)."""
+        if self.shape_type == 'rectangular':
+            _, yy = np.meshgrid(self.x, self.y)
+            return yy
+        else:
+            r_mesh, phi_mesh = np.meshgrid(self.r_centers, self.phi_centers)
+            return r_mesh * np.sin(phi_mesh)
+
+    @property
+    def r_centers(self) -> np.ndarray:
+        """Cell center radii for annular screen with uniform surface area sampling, shape (N_R,)."""
+        nr = self.N_R if self.N_R is not None else 32
+        rmin = self.R_min if self.R_min is not None else 0.0
+        rmax = self.R_max if self.R_max is not None else 200.0
+        r2 = rmin**2 + (np.arange(nr) + 0.5) * (rmax**2 - rmin**2) / nr
+        return np.sqrt(r2)
+
+    @property
+    def phi_centers(self) -> np.ndarray:
+        """Cell center angles for annular screen in radians, shape (N_Phi,)."""
+        nphi = self.N_Phi if self.N_Phi is not None else 32
+        pmin = self.Phi_min if self.Phi_min is not None else 0.0
+        pmax = self.Phi_max if self.Phi_max is not None else 2.0 * np.pi
+        dphi = (pmax - pmin) / nphi
+        return pmin + (np.arange(nphi) + 0.5) * dphi
+
+    @property
+    def r_edges(self) -> np.ndarray:
+        """Cell edge radii for annular screen, shape (N_R + 1,)."""
+        nr = self.N_R if self.N_R is not None else 32
+        rmin = self.R_min if self.R_min is not None else 0.0
+        rmax = self.R_max if self.R_max is not None else 200.0
+        r2_edges = rmin**2 + np.arange(nr + 1) * (rmax**2 - rmin**2) / nr
+        return np.sqrt(r2_edges)
+
+    @property
+    def phi_edges(self) -> np.ndarray:
+        """Cell edge angles for annular screen in radians, shape (N_Phi + 1,)."""
+        nphi = self.N_Phi if self.N_Phi is not None else 32
+        pmin = self.Phi_min if self.Phi_min is not None else 0.0
+        pmax = self.Phi_max if self.Phi_max is not None else 2.0 * np.pi
+        return pmin + np.arange(nphi + 1) * (pmax - pmin) / nphi
+
+    @property
+    def grid_x_corners(self) -> np.ndarray:
+        """2D corner mesh x-coordinates for pcolormesh, shape (N_Phi + 1, N_R + 1)."""
+        r_mesh, phi_mesh = np.meshgrid(self.r_edges, self.phi_edges)
+        return r_mesh * np.cos(phi_mesh)
+
+    @property
+    def grid_y_corners(self) -> np.ndarray:
+        """2D corner mesh y-coordinates for pcolormesh, shape (N_Phi + 1, N_R + 1)."""
+        r_mesh, phi_mesh = np.meshgrid(self.r_edges, self.phi_edges)
+        return r_mesh * np.sin(phi_mesh)
+
 
 
 @dataclass(frozen=True)
@@ -178,6 +305,14 @@ class ScreenResult:
             if not np.all(np.isfinite(arr)):
                 raise ValueError(f'{name} elements must be finite complex numbers')
             object.__setattr__(self, name, arr)
+
+    @property
+    def time_per_electron_per_point_seconds(self) -> float | None:
+        """Average real wall-clock computation time per electron per screen point in seconds."""
+        if self.time_per_electron_seconds is not None:
+            n_points = self.geometry.Nx * self.geometry.Ny
+            return self.time_per_electron_seconds / n_points if n_points > 0 else None
+        return None
 
     @property
     def F_total(self) -> np.ndarray:
@@ -267,9 +402,9 @@ def _compute_single_electron_screen_field(r, u, w, tau, geometry: ScreenGeometry
 
     # Evaluate over 2D screen pixels (j, i)
     for j in range(Ny):
-        y_obs = y_grid[j, 0]
         for i in range(Nx):
-            x_obs = x_grid[0, i]
+            x_obs = x_grid[j, i]
+            y_obs = y_grid[j, i]
 
             # Displacement vector R0 = x_obs - r(tau)
             Rx = x_obs - rx

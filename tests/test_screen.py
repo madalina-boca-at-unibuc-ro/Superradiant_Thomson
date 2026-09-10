@@ -65,6 +65,85 @@ class TestScreenGeometry(unittest.TestCase):
         expected_bwd = np.array([1, 2, 3]) * 0.057 / (1.0 + 1.0**2 / 2.0)
         np.testing.assert_allclose(geom_bwd.omega, expected_bwd, rtol=1e-12)
 
+    def test_annular_geometry_grid_and_corners(self):
+        """Test annular screen geometry, sqrt uniform area sampling, and pcolormesh corner meshes."""
+        geom = ScreenGeometry(z_screen=100.0, omega=np.array([1.0]), shape_type='annular',
+                              R_min=0.0, R_max=10.0, N_R=4, Phi_min=0.0, Phi_max=2.0 * np.pi, N_Phi=8)
+        self.assertEqual(geom.shape_type, 'annular')
+        self.assertEqual(geom.Nx, 4)
+        self.assertEqual(geom.Ny, 8)
+        self.assertEqual(geom.grid_x.shape, (8, 4))
+        self.assertEqual(geom.grid_y.shape, (8, 4))
+        self.assertEqual(geom.grid_x_corners.shape, (9, 5))
+        self.assertEqual(geom.grid_y_corners.shape, (9, 5))
+
+        # Sqrt sampling check: r^2 for 4 bins between 0^2 and 10^2 -> [12.5, 37.5, 62.5, 87.5]
+        expected_r_centers = np.sqrt(np.array([12.5, 37.5, 62.5, 87.5]))
+        np.testing.assert_allclose(geom.r_centers, expected_r_centers, rtol=1e-12)
+        expected_r2_edges = np.array([0.0, 25.0, 50.0, 75.0, 100.0])
+        np.testing.assert_allclose(geom.r_edges**2, expected_r2_edges, rtol=1e-12)
+
+    def test_screen_parameters_resolution_in_w0_units(self):
+        """Test resolving screen dimensions using w_0 and w0 as length units."""
+        units = AtomicUnits()
+        registry = default_registry(units)
+        register_laser_scales(registry, units)
+        from superradiant_thomson.laser import register_temporal_scales, temporal_schema, amplitude_schema
+        from superradiant_thomson.lg_mode import lg_schema
+        from superradiant_thomson.electron import electron_schema
+        register_temporal_scales(registry)
+
+        inputs = {
+            'laser.omega': 0.057,
+            'laser.a_0': 0.1,
+            'laser.flat_top_periods': 2,
+            'laser.sigma_l': {'value': 1, 'unit': 'T'},
+            'laser.wing_factor': 2,
+            'laser.p': 0,
+            'laser.m': 0,
+            'laser.epsilon': 1,
+            'laser.w_0': {'value': 50.0, 'unit': 'lambda'},
+            'laser.zeta_x': 1.0,
+            'laser.zeta_y': 0.0,
+            'electron.N': 1,
+            'electron.seed': 123,
+            'electron.NT': 100,
+            'electron.x_0': 0.0,
+            'electron.y_0': 0.0,
+            'electron.z_0': 0.0,
+            'electron.R_beam': 0.0,
+            'electron.h_beam': 0.0,
+            'electron.px_beam': 0.0,
+            'electron.py_beam': 0.0,
+            'electron.pz_beam': 0.0,
+            'electron.sigma_px_beam': 0.0,
+            'electron.sigma_py_beam': 0.0,
+            'electron.sigma_pz_beam': 0.0,
+            'screen.shape': 'annular',
+            'screen.z_screen': {'value': -500.0, 'unit': 'w_0'},
+            'screen.width': {'value': 10.0, 'unit': 'w_0'},
+            'screen.height': {'value': 10.0, 'unit': 'w0'},
+            'screen.Nx': 16,
+            'screen.Ny': 16,
+            'screen.R_min': {'value': 0.0, 'unit': 'w_0'},
+            'screen.R_max': {'value': 5.0, 'unit': 'w0'},
+            'screen.N_R': 16,
+            'screen.Phi_min': {'value': 0.0, 'unit': 'pi'},
+            'screen.Phi_max': {'value': 2.0, 'unit': 'pi'},
+            'screen.N_Phi': 16,
+            'screen.N_min': 1,
+            'screen.N_max': 3,
+            'screen.method': 'direct',
+        }
+
+        schema = (screen_schema() | lg_schema() | temporal_schema() | amplitude_schema() | electron_schema())
+        params = ParameterResolver(registry, schema).resolve(inputs)
+        w0_au = params['laser.w_0']
+        self.assertAlmostEqual(params['screen.R_max'], 5.0 * w0_au)
+        self.assertAlmostEqual(params['screen.width'], 10.0 * w0_au)
+        self.assertAlmostEqual(params['screen.height'], 10.0 * w0_au)
+        self.assertAlmostEqual(params['screen.z_screen'], -500.0 * w0_au)
+
 
 class TestScreenEvaluator(unittest.TestCase):
 

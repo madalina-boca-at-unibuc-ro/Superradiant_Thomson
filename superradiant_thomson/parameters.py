@@ -230,6 +230,7 @@ def default_registry(units: AtomicUnits | None = None):
         ('m_e*c', MOMENTUM, units.c, ('m_e c', 'mc', 'c_momentum')),
         ('c', MOMENTUM, units.c, ()),
         ('rad/s', ANGULAR_FREQUENCY, units.time_in_s, ()),
+        ('pi', DIMENSIONLESS, pi, ('Pi', 'PI')),
     ):
         registry.register(name, Scale(dimension, factor), aliases=aliases)
     return registry
