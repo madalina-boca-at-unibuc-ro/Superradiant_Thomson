@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from ..screen import COMPONENT_NAMES, ScreenResult
-from .style import label_axes
+from .style import label_axes, add_dual_unit_axes
 
 
-def _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap, vmin=None, vmax=None):
+def _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap, vmin=None, vmax=None, w_0=None):
     """Draw a 2D scalar field heatmap on ax using pcolormesh for annular screen or imshow for rectangular screen."""
     if geom.shape_type == 'annular':
         X_c = geom.grid_x_corners / scale_spatial
@@ -16,22 +16,26 @@ def _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap, vmin=None, vmax=Non
         ax.set_xlim(-1.05 * r_max_disp, 1.05 * r_max_disp)
         ax.set_ylim(-1.05 * r_max_disp, 1.05 * r_max_disp)
         ax.set_aspect('equal')
-        return im
     else:
         x_disp = geom.x / scale_spatial
         y_disp = geom.y / scale_spatial
         extent = [x_disp[0] - 0.5 * geom.dx / scale_spatial, x_disp[-1] + 0.5 * geom.dx / scale_spatial,
                   y_disp[0] - 0.5 * geom.dy / scale_spatial, y_disp[-1] + 0.5 * geom.dy / scale_spatial]
         im = ax.imshow(data_2d, origin='lower', extent=extent, cmap=cmap, vmin=vmin, vmax=vmax, aspect='equal')
-        return im
+
+    if w_0 is not None:
+        add_dual_unit_axes(ax, lambda_scale=scale_spatial, w_0=w_0)
+
+    return im
 
 
-def plot_screen_emitted_intensity(result: ScreenResult, *, lambda_scale=None, pulse=None,
+def plot_screen_emitted_intensity(result: ScreenResult, *, lambda_scale=None, w_0=None, pulse=None,
                                   omega_idx=None, fig=None):
     """Plot 2D heatmap(s) of emitted spectral intensity on the observation screen.
 
     result: ScreenResult instance.
     lambda_scale: laser wavelength scale in atomic units for coordinate display in lambda.
+    w_0: laser waist scale in atomic units for top/right secondary axis display in w_0.
     pulse: optional TemporalFactor instance for scaling frequency to omega_0.
     omega_idx: integer frequency index to plot single frequency, or None to plot all frequencies.
     Returns: (fig, axs).
@@ -71,11 +75,11 @@ def plot_screen_emitted_intensity(result: ScreenResult, *, lambda_scale=None, pu
         N_val = geom.harmonics[iw] if (geom.harmonics is not None and iw < len(geom.harmonics)) else (iw + 1)
         data_2d = intensity[iw]
 
-        im = _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap='inferno')
+        im = _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap='inferno', w_0=w_0)
         cbar = fig.colorbar(im, ax=ax, shrink=0.85)
         cbar.set_label('$\\sum_{\\mu<\\nu} |\\tilde{F}^{\\mu\\nu}|^2$ (a.u.)', fontsize=9)
 
-        label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
+        label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$',
                    title=f'Emitted Intensity ($\\omega_{{{N_val}}} = {w_val:.4g}\\,{label_w}$)')
 
     fig.suptitle(f'Observation Screen Radiation Field ($Z_0 = {geom.z_screen / scale_spatial:.1f}\\,{label_spatial}$)', fontsize=12)
@@ -83,9 +87,9 @@ def plot_screen_emitted_intensity(result: ScreenResult, *, lambda_scale=None, pu
 
 
 def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx: int,
-                                            contribution: str = 'total', omega_idx: int = 1,
-                                            *, lambda_scale=None, unit_label='\\lambda',
-                                            pulse=None, fig=None):
+                                             contribution: str = 'total', omega_idx: int = 1,
+                                             *, lambda_scale=None, unit_label='\\lambda',
+                                             w_0=None, pulse=None, fig=None):
     """Plot 2x2 panel (Real, Imag, Modulus, Phase) for one Faraday component and contribution.
 
     component_idx: integer 0..5 corresponding to ('F01', 'F02', 'F03', 'F12', 'F13', 'F23').
@@ -93,6 +97,7 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
     omega_idx: frequency index to plot (default 1 for middle frequency).
     lambda_scale: spatial scale in atomic units for x/y axis display (despite the name,
         any length scale works, e.g. w_0); unit_label is its LaTeX display label.
+    w_0: laser waist scale in atomic units for top/right secondary axis display in w_0.
     Returns: (fig, axs).
     """
     geom = result.geometry
@@ -133,48 +138,65 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
     mod_part = np.abs(data_2d)
     phase_part = np.angle(data_2d)
 
+    max_mod = np.max(mod_part)
+    if max_mod == 0 or not np.isfinite(max_mod):
+        max_mod = 1.0
+
     # 1. Real Part
     ax = axs[0, 0]
-    max_re = np.max(np.abs(re_part)) or 1.0
-    im_re = _draw_2d_heatmap(ax, re_part, geom, scale_spatial, cmap='RdBu_r', vmin=-max_re, vmax=max_re)
-    cbar = fig.colorbar(im_re, ax=ax, shrink=0.85)
-    cbar.set_label(f'Re($\\tilde{{{name}}}$)', fontsize=9)
-    label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
+    im_re = _draw_2d_heatmap(ax, re_part, geom, scale_spatial, cmap='RdBu_r', vmin=-max_mod, vmax=max_mod, w_0=w_0)
+    cbar_re = fig.colorbar(im_re, ax=ax, shrink=0.85)
+    label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$',
                title=f'Real Part Re($\\tilde{{{name}}}$)')
 
     # 2. Imaginary Part
     ax = axs[0, 1]
-    max_im = np.max(np.abs(im_part)) or 1.0
-    im_im = _draw_2d_heatmap(ax, im_part, geom, scale_spatial, cmap='RdBu_r', vmin=-max_im, vmax=max_im)
-    cbar = fig.colorbar(im_im, ax=ax, shrink=0.85)
-    cbar.set_label(f'Im($\\tilde{{{name}}}$)', fontsize=9)
-    label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
+    im_im = _draw_2d_heatmap(ax, im_part, geom, scale_spatial, cmap='RdBu_r', vmin=-max_mod, vmax=max_mod, w_0=w_0)
+    cbar_im = fig.colorbar(im_im, ax=ax, shrink=0.85)
+    label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$',
                title=f'Imaginary Part Im($\\tilde{{{name}}}$)')
 
     # 3. Modulus Part
     ax = axs[1, 0]
-    im_mod = _draw_2d_heatmap(ax, mod_part, geom, scale_spatial, cmap='viridis', vmin=0, vmax=np.max(mod_part) or 1.0)
-    cbar = fig.colorbar(im_mod, ax=ax, shrink=0.85)
-    cbar.set_label(f'$|\\tilde{{{name}}}|$', fontsize=9)
-    label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
+    im_mod = _draw_2d_heatmap(ax, mod_part, geom, scale_spatial, cmap='viridis', vmin=0, vmax=max_mod, w_0=w_0)
+    cbar_mod = fig.colorbar(im_mod, ax=ax, shrink=0.85)
+    label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$',
                title=f'Modulus $|\\tilde{{{name}}}|$')
 
     # 4. Phase Part
     ax = axs[1, 1]
-    im_phase = _draw_2d_heatmap(ax, phase_part, geom, scale_spatial, cmap='twilight', vmin=-np.pi, vmax=np.pi)
-    cbar = fig.colorbar(im_phase, ax=ax, shrink=0.85, ticks=[-np.pi, -np.pi/2, 0, np.pi/2, np.pi])
-    cbar.ax.set_yticklabels(['$-\\pi$', '$-\\pi/2$', '$0$', '$\\pi/2$', '$\\pi$'])
-    cbar.set_label(f'Arg($\\tilde{{{name}}}$) (rad)', fontsize=9)
-    label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
-               title=f'Phase Arg($\\tilde{{{name}}}$)')
+    im_phase = _draw_2d_heatmap(ax, phase_part, geom, scale_spatial, cmap='twilight', vmin=-np.pi, vmax=np.pi, w_0=w_0)
+    cbar_phase = fig.colorbar(im_phase, ax=ax, shrink=0.85, ticks=[-np.pi, -np.pi/2, 0, np.pi/2, np.pi])
+    cbar_phase.ax.set_yticklabels(['$-\\pi$', '$-\\pi/2$', '$0$', '$\\pi/2$', '$\\pi$'])
+    label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$',
+               title=f'Phase Arg($\\tilde{{{name}}}$) (rad)')
 
     fig.suptitle(f'Faraday Tensor Component $\\tilde{{{name}}}$ [{contrib_label}] at $\\omega_{{{N_val}}} = {w_val:.4g}\\,{label_w}$', fontsize=12)
+
+    # Compute layout bounding boxes and lock colorbar horizontal positions across columns for exact vertical alignment
+    fig.canvas.draw()
+    pos_re = cbar_re.ax.get_position()
+    pos_mod = cbar_mod.ax.get_position()
+    x0_col1 = max(pos_re.x0, pos_mod.x0)
+    w_col1 = pos_re.width
+    cbar_re.ax.set_position([x0_col1, pos_re.y0, w_col1, pos_re.height])
+    cbar_mod.ax.set_position([x0_col1, pos_mod.y0, w_col1, pos_mod.height])
+
+    pos_im = cbar_im.ax.get_position()
+    pos_phase = cbar_phase.ax.get_position()
+    x0_col2 = max(pos_im.x0, pos_phase.x0)
+    w_col2 = pos_im.width
+    cbar_im.ax.set_position([x0_col2, pos_im.y0, w_col2, pos_im.height])
+    cbar_phase.ax.set_position([x0_col2, pos_phase.y0, w_col2, pos_phase.height])
+
+    fig.set_layout_engine(None)
+
     return fig, axs
 
 
 def generate_all_screen_breakdown_plots(result: ScreenResult, omega_idx: int | None = None,
                                          *, lambda_scale=None, unit_label='\\lambda',
-                                         pulse=None, run_dir=None, close_figs: bool = False):
+                                         w_0=None, pulse=None, run_dir=None, close_figs: bool = False):
     """Generate 4-panel (Real, Imag, Modulus, Phase) breakdown plots for all 6 components and 4 contributions.
 
     When `run_dir` is provided:
@@ -211,7 +233,7 @@ def generate_all_screen_breakdown_plots(result: ScreenResult, omega_idx: int | N
             for contrib in contributions:
                 fig, _ = plot_screen_faraday_component_breakdown(
                     result, comp, contribution=contrib, omega_idx=o_idx,
-                    lambda_scale=lambda_scale, unit_label=unit_label, pulse=pulse
+                    lambda_scale=lambda_scale, unit_label=unit_label, w_0=w_0, pulse=pulse
                 )
                 if target_dir is not None:
                     out_path = target_dir / f'screen_{name}_{contrib}.png'
@@ -225,12 +247,13 @@ def generate_all_screen_breakdown_plots(result: ScreenResult, omega_idx: int | N
     return figs
 
 
-def plot_screen_angular_momentum_flux_density(result: ScreenResult, *, lambda_scale=None, pulse=None,
+def plot_screen_angular_momentum_flux_density(result: ScreenResult, *, lambda_scale=None, w_0=None, pulse=None,
                                                c=None, omega_idx=None, fig=None):
     """Plot 2D heatmap(s) of spectral angular momentum flux density dF_{J_z}/domega on the observation screen.
 
     result: ScreenResult instance.
     lambda_scale: laser wavelength scale in atomic units for coordinate display in lambda.
+    w_0: laser waist scale in atomic units for top/right secondary axis display in w_0.
     pulse: optional TemporalFactor instance for scaling frequency to omega_0.
     c: speed of light in atomic units.
     omega_idx: integer frequency index to plot single frequency, or None to plot all frequencies.
@@ -274,12 +297,13 @@ def plot_screen_angular_momentum_flux_density(result: ScreenResult, *, lambda_sc
         vmax = np.max(np.abs(data_2d))
         if vmax == 0:
             vmax = 1.0
-        im = _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap='RdBu_r', vmin=-vmax, vmax=vmax)
+        im = _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap='RdBu_r', vmin=-vmax, vmax=vmax, w_0=w_0)
         cbar = fig.colorbar(im, ax=ax, shrink=0.85)
         cbar.set_label('$d\\mathcal{F}_{J_z}/d\\omega$ (a.u.)', fontsize=9)
 
-        label_axes(ax, xlabel=f'$x$ ({label_spatial})', ylabel=f'$y$ ({label_spatial})',
+        label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$',
                    title=f'Angular Momentum Flux ($\\omega_{{{N_val}}} = {w_val:.4g}\\,{label_w}$)')
 
     fig.suptitle(f'Spectral Angular Momentum Flux Density Along $Oz$ ($Z_0 = {geom.z_screen / scale_spatial:.1f}\\,{label_spatial}$)', fontsize=12)
     return fig, axs
+

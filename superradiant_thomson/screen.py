@@ -149,7 +149,26 @@ class ScreenGeometry:
         zs_sign = 1.0 if z_screen >= 0 else -1.0
         n_s = np.array([1.0, 0.0, 0.0, zs_sign])
 
-        q = p + (m * c) * (a_0**2 / 4.0) * n_L
+        # Dressed (quasi-)momentum: q = p + (m*c)^2*<a^2>/(2*<p,k1>) * k1, the standard Volkov/
+        # ponderomotive-dressing formula (k1 = (omega_0/c)*n_L, so k1's contribution to the coefficient
+        # collapses to the n_L term below once the (omega_0/c) factors cancel between <p,k1> and k1
+        # itself). This must be momentum-dependent, not a fixed coefficient*n_L term (a special case of
+        # this formula, only equal to it for an electron exactly at rest, where <p,k1> = m*omega_0).
+        #
+        # <a^2> is the cycle-averaged normalized-amplitude-squared, NOT a_0^2 (the peak amplitude)
+        # directly -- q is the electron's *drift* momentum (its trajectory averaged over one laser
+        # cycle), so it must be built from the cycle-averaged field, not its instantaneous peak. For the
+        # on-axis carrier A_x=A0*a*cos(phi-alpha), A_y=A0*b*cos(phi-beta) (zeta_x=a*e^{i*alpha},
+        # zeta_y=b*e^{i*beta}, a^2+b^2=1 after LGMode's own zeta normalization), <|A|^2> =
+        # A0^2*(a^2*<cos^2>+b^2*<cos^2>) = A0^2/2 exactly, for ANY a,b with a^2+b^2=1 -- i.e.
+        # <a^2> = a_0^2/2 regardless of polarization state (linear, circular, or elliptical), since the
+        # cross term between the two orthogonal components never appears in |A|^2=A_x^2+A_y^2 and each
+        # squared cosine averages to 1/2 independently. Matched against the independent C++ cross-check
+        # (CoherentThomson's Simulation::init_simulation_parameters, which implements this same
+        # momentum-dependent, cycle-averaged formula).
+        p_dot_nL = p0 - pz
+        a_sq_avg = a_0**2 / 2.0
+        q = p + (m * c)**2 * a_sq_avg / (2.0 * p_dot_nL) * n_L
         nL_dot_q = q[0] - q[3]
         ns_dot_q = q[0] - n_s[3] * q[3]
 

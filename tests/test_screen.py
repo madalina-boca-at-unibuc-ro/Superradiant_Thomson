@@ -59,7 +59,22 @@ class TestScreenGeometry(unittest.TestCase):
         expected_fwd = np.array([1, 2, 3]) * 0.057
         np.testing.assert_allclose(geom_fwd.omega, expected_fwd, rtol=1e-12)
 
-        # Backward screen (z_screen < 0) for electron at rest -> omega_N = N * omega_0 / (1 + a_0^2 / 2)
+        # Backward screen (z_screen < 0) for electron at rest -> omega_N = N * omega_0 / (1 + a_0^2/2).
+        #
+        # Derivation: q = p + (m*c)^2*<a^2>/(2*<p,k1>)*n_L is the standard Volkov dressed-momentum
+        # formula (ScreenGeometry.from_parameters), where <a^2> is the *cycle-averaged*
+        # normalized-amplitude-squared, not a_0^2 (the peak amplitude) directly. For any normalized
+        # polarization (|zeta_x|^2+|zeta_y|^2=1 -- linear, circular, or elliptical), <a^2> = a_0^2/2
+        # exactly: with zeta_x=a*e^{i*alpha}, zeta_y=b*e^{i*beta} (a^2+b^2=1), the on-axis carrier is
+        # A_x=A0*a*cos(phi-alpha), A_y=A0*b*cos(phi-beta), so <|A|^2> = A0^2*(a^2+b^2)*<cos^2> = A0^2/2
+        # for any a,b -- polarization-independent, since |A|^2=A_x^2+A_y^2 has no cross term and each
+        # squared cosine averages to 1/2 on its own. For an electron at rest, <p,k1> = m*c*omega_0/c =
+        # m*omega_0, so q = p + (m*c*a_0^2/4)*n_L, giving q0-qz = m*c (independent of a_0) and
+        # q0+qz = m*c*(1+a_0^2/2) -- hence the (1+a_0^2/2) denominator for the backward (n_s = -n_L)
+        # direction used here. Matched against the independent C++ cross-check
+        # (CoherentThomson's Simulation::init_simulation_parameters, which implements this same
+        # momentum-dependent, cycle-averaged formula) -- this test's params below don't set
+        # laser.zeta_x/zeta_y, but the result is the same regardless of what they'd be set to.
         params_bwd = dict(params, **{'screen.z_screen': -1000.0})
         geom_bwd = ScreenGeometry.from_parameters(params_bwd, units=units)
         expected_bwd = np.array([1, 2, 3]) * 0.057 / (1.0 + 1.0**2 / 2.0)

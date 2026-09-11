@@ -2,7 +2,7 @@
 import numpy as np
 
 from ..parameters import AtomicUnits, TIME, default_registry
-from .style import label_axes
+from .style import label_axes, add_dual_unit_axes
 
 
 def plot_temporal_factor(pulse, time, *, z=0.0, time_unit='fs',
@@ -54,12 +54,14 @@ def plot_temporal_factor(pulse, time, *, z=0.0, time_unit='fs',
     return fig, ax
 
 
-def plot_lg_intensity(x, y, intensity, *, w_0, time_in_periods, ax=None):
+def plot_lg_intensity(x, y, intensity, *, w_0, time_in_periods, lambda_scale=None, ax=None):
     """Plot |E_0*u*f|^2 in atomic field squared, ordered [y,x].
 
     This scalar-mode diagnostic is not the full instantaneous vector |E|^2.
     Coordinates are sample centers in atomic units. Color values are not
     rescaled by their peak. Caller controls display and saving.
+    When lambda_scale is provided, lower/left axes display units of lambda
+    and upper/right axes display units of w_0.
     """
     x, y, intensity = np.asarray(x), np.asarray(y), np.asarray(intensity)
     if (x.ndim != 1 or y.ndim != 1 or min(x.size, y.size) < 2
@@ -74,14 +76,28 @@ def plot_lg_intensity(x, y, intensity, *, w_0, time_in_periods, ax=None):
         fig, ax = plt.subplots(figsize=(6, 5), layout='constrained')
     else:
         fig = ax.figure
-    mesh = ax.pcolormesh(x / w_0, y / w_0, intensity, shading='nearest',
+
+    if lambda_scale is not None:
+        scale_spatial = float(lambda_scale)
+        label_spatial = r'\lambda'
+        has_dual = True
+    else:
+        scale_spatial = float(w_0)
+        label_spatial = r'w_0'
+        has_dual = False
+
+    mesh = ax.pcolormesh(x / scale_spatial, y / scale_spatial, intensity, shading='nearest',
                          cmap='inferno', vmin=0, rasterized=True)
-    ax.set(xlabel=r'$x/w_0$', ylabel=r'$y/w_0$',
+    ax.set(xlabel=rf'$x/{label_spatial}$', ylabel=rf'$y/{label_spatial}$',
            title=f'LG mode intensity at z=0, t={time_in_periods:g} T',
-           xlim=(x[0]/w_0, x[-1]/w_0), ylim=(y[0]/w_0, y[-1]/w_0))
+           xlim=(x[0] / scale_spatial, x[-1] / scale_spatial),
+           ylim=(y[0] / scale_spatial, y[-1] / scale_spatial))
     ax.set_aspect('equal')
+    if has_dual:
+        add_dual_unit_axes(ax, lambda_scale=scale_spatial, w_0=w_0)
     fig.colorbar(mesh, ax=ax, label=r'$|E_0 u_{pm} f|^2$ (a.u. of electric field squared)')
     return fig, ax
+
 
 
 def plot_laser_fields(fields, time, *, r_w0=(0.0, 0.0, 0.0), time_unit='T',

@@ -6,7 +6,7 @@ $$ \omega_N = N \omega_0 \frac{n_L\cdot q}{n_s\cdot q}$$
 
 where $q$ is the dressed electron momentum 
 
-$$q= p + (mc)\frac{a_0^2}{4}n_L$$
+$$q= p + (mc)^2\frac{a_0^2}{4(n_l\cdot p)}n_L$$
 
 where $n_L$ is the laser propagation direction 4-vector 
 

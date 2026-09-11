@@ -42,7 +42,7 @@ Harmonic frequencies $\omega_N$ for integer harmonic orders $N \in [N_{\min}, N_
 
 $$\omega_N = N \omega_0 \frac{n_L \cdot q}{n_s \cdot q}$$
 
-where $q = p + (m c)\frac{a_0^2}{4} n_L$ is the dressed electron 4-momentum, $n_L = (1, 0, 0, 1)$, and $n_s = (1, 0, 0, \operatorname{sgn}(Z_{\text{screen}}))$. Wavenumber $k_N = \omega_N / c$.
+where $q = p + (m c)^2 \frac{a_0^2}{4 (n_L \cdot p)} n_L$ is the dressed electron 4-momentum ($n_L \cdot p = p^0 - p^z$), $n_L = (1, 0, 0, 1)$, and $n_s = (1, 0, 0, \operatorname{sgn}(Z_{\text{screen}}))$. Wavenumber $k_N = \omega_N / c$.
 
 ---
 

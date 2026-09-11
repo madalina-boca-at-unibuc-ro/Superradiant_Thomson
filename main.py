@@ -47,7 +47,7 @@ INPUTS = {
     'laser.sigma_l': {'value': 2, 'unit': 'T'},
     'laser.wing_factor': 5,
     'laser.p': 0,
-    'laser.m': 0,
+    'laser.m': 1,
     'laser.epsilon': -1,
     'laser.w_0': {'value': 75, 'unit': 'lambda'},
     'laser.zeta_x': 1.0,
@@ -83,7 +83,7 @@ INPUTS = {
     'screen.N_Phi': 64,
     'screen.N_min': 1,
     'screen.N_max': 3,
-    'screen.method': 'direct',  # 'simplified' (Form 2) or 'direct' (Form 1)
+    'screen.method': 'simplified',  # 'simplified' (Form 2) or 'direct' (Form 1)
 }
 
 
@@ -198,6 +198,7 @@ def main(*, show=False, output_root=None, inputs=None):
             'shape': list(intensity.shape),
         }
         fig, ax = plot_lg_intensity(xy, xy, intensity, w_0=mode.w_0,
+                                   lambda_scale=mode.get_lambda(),
                                    time_in_periods=heatmap_time / pulse.timing.period)
         figures.append(fig)
         fig.savefig(run_dir / 'lg_intensity.png', dpi=180)
@@ -318,18 +319,18 @@ def main(*, show=False, output_root=None, inputs=None):
             screen_meta['Phi_min_rad'] = screen_geom.Phi_min
             screen_meta['Phi_max_rad'] = screen_geom.Phi_max
         metadata['screen_emitted_field'] = screen_meta
-        fig_screen, _ = plot_screen_emitted_intensity(screen_result, lambda_scale=mode.get_lambda(), pulse=pulse)
+        fig_screen, _ = plot_screen_emitted_intensity(screen_result, lambda_scale=mode.get_lambda(), w_0=mode.w_0, pulse=pulse)
         figures.append(fig_screen)
         fig_screen.savefig(run_dir / 'screen_emitted_intensity.png', dpi=180)
 
-        fig_am, _ = plot_screen_angular_momentum_flux_density(screen_result, lambda_scale=mode.get_lambda(), pulse=pulse, c=units.c)
+        fig_am, _ = plot_screen_angular_momentum_flux_density(screen_result, lambda_scale=mode.get_lambda(), w_0=mode.w_0, pulse=pulse, c=units.c)
         figures.append(fig_am)
         fig_am.savefig(run_dir / 'screen_angular_momentum_flux.png', dpi=180)
 
         # Generate 18 breakdown figures for each calculated frequency in distinct subfolders
         # Each figure is a 2x2 panel: Real, Imag, Modulus, Phase
         breakdown_figs = generate_all_screen_breakdown_plots(
-            screen_result, omega_idx=None, lambda_scale=mode.w_0, unit_label='w_0', pulse=pulse,
+            screen_result, omega_idx=None, lambda_scale=mode.get_lambda(), unit_label='\\lambda', w_0=mode.w_0, pulse=pulse,
             run_dir=run_dir, close_figs=not show
         )
         figures.extend(breakdown_figs)
