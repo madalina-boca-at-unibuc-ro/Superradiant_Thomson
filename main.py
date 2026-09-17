@@ -120,11 +120,13 @@ def sample_pulse(inputs=None):
     return units, parameters, pulse, time, envelope, temporal_factor
 
 
-def main(*, show=False, output_root=None, inputs=None):
+def main(*, show=False, output_root=None, inputs=None, output_pdf=None):
     inputs = inputs if inputs is not None else INPUTS
     from dataclasses import asdict
     from datetime import datetime, timezone
     import platform
+    import shutil
+    from pathlib import Path
     import scipy
     from superradiant_thomson.output import create_run_directory, write_json
 
@@ -144,7 +146,7 @@ def main(*, show=False, output_root=None, inputs=None):
             plot_temporal_factor, plot_lg_intensity, plot_laser_fields,
             plot_electron_initial_distribution, plot_electron_ensemble_trajectories,
             plot_screen_emitted_intensity, generate_all_screen_breakdown_plots,
-            plot_screen_angular_momentum_flux_density,
+            plot_screen_angular_momentum_flux_density, generate_parameters_pdf,
         )
         import matplotlib
         if not show:
@@ -169,6 +171,15 @@ def main(*, show=False, output_root=None, inputs=None):
                                    sample_geometry='x line at y=z=0',
                                    mode_units='dimensionless', derivative_units='inverse bohr')
         write_json(run_dir / 'parameters.json', parameters.to_dict())
+        pdf_path = run_dir / 'parameters.pdf'
+        generate_parameters_pdf(pdf_path, parameters, units=units, run_dir=run_dir)
+        print(f'Simulation parameters PDF saved: {pdf_path}')
+        if output_pdf:
+            target_copy = Path(output_pdf).resolve()
+            target_copy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(pdf_path, target_copy)
+            print(f'Simulation parameters PDF copied to: {target_copy}')
+
         metadata.update(constants=asdict(units), timing=asdict(pulse.timing),
                         duration_au=pulse.timing.duration, z_au=0.0,
                         sample_count=time.size, array_units='Hartree atomic units')
@@ -351,8 +362,25 @@ def main(*, show=False, output_root=None, inputs=None):
 
 if __name__ == '__main__':
     import argparse
+    from pathlib import Path
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--show', action='store_true', help='Open interactive plot windows')
+    parser.add_argument('--electrons', type=int, default=None, help='Override electron count electron.N')
+    parser.add_argument('--pdf-only', action='store_true', help='Generate only parameters PDF and exit')
+    parser.add_argument('--output-pdf', type=str, default=None, help='Target file path for saving/copying parameters PDF')
     args = parser.parse_args()
-    main(show=args.show)
+
+    run_inputs = dict(INPUTS)
+    if args.electrons is not None:
+        run_inputs['electron.N'] = args.electrons
+
+    if args.pdf_only:
+        units, parameters, _ = initialize(run_inputs)
+        out_path = Path(args.output_pdf) if args.output_pdf else Path('parameters.pdf')
+        from superradiant_thomson.plotting import generate_parameters_pdf
+        generate_parameters_pdf(out_path, parameters, units=units)
+        print(f'Simulation parameters PDF created: {out_path.resolve()}')
+    else:
+        main(show=args.show, inputs=run_inputs, output_pdf=args.output_pdf)
+

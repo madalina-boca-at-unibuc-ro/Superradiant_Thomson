@@ -15,6 +15,7 @@ from .screen import (
     generate_all_screen_breakdown_plots,
     plot_screen_angular_momentum_flux_density,
 )
+from .parameters_pdf import generate_parameters_pdf
 
 __all__ = [
     'plot_temporal_factor', 'plot_lg_intensity', 'plot_laser_fields',
@@ -25,5 +26,6 @@ __all__ = [
     'plot_screen_emitted_intensity',
     'plot_screen_faraday_component_breakdown', 'generate_all_screen_breakdown_plots',
     'plot_screen_angular_momentum_flux_density',
+    'generate_parameters_pdf',
 ]
 
