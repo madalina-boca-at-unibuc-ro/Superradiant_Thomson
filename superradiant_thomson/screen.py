@@ -15,6 +15,42 @@ COMPONENT_NAMES = ('F01', 'F02', 'F03', 'F12', 'F13', 'F23')
 COMPONENT_INDICES = ((0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3))
 
 
+def _wedge_n_v(nx, ny, nz, V0, Vx, Vy, Vz):
+    r"""Pack the 6 independent components of (n_R0^alpha V^beta - n_R0^beta V^alpha).
+
+    n_R0 is the (implicitly contravariant) source-to-observer direction 4-vector
+    with its time component fixed at 1, i.e. n_R0^mu = (1, nx, ny, nz) -- the same
+    convention used a few lines above this function's call sites to form
+    `u_dot_n = u0 - (ux*nx + uy*ny + uz*nz)` (the Minkowski product u.n_R0 in
+    metric (+,-,-,-), since n_R0^0=1 by construction). V^mu = (V0, Vx, Vy, Vz) is
+    whichever 4-vector lives on the electron's trajectory at that retarded time:
+    the 4-velocity u for the F_l/F_s "u-wedge" needed by both calculation methods,
+    or the 4-acceleration w for the F_l "w-wedge" needed only by the 'direct'
+    method. Substituting u or w into this same formula is exactly why the two
+    call sites below were previously duplicated ~6-line blocks that differed only
+    in which 4-vector's components were passed in.
+
+    Because n_R0^0 = 1, the time-space components (0, i) collapse from the
+    general n^0 V^i - n^i V^0 to plain V^i - n_i*V^0, while the space-space
+    components (i, j) keep the usual bilinear cross-product-like form
+    n_i V_j - n_j V_i. Output columns follow the module-level COMPONENT_INDICES
+    / COMPONENT_NAMES ordering (F01, F02, F03, F12, F13, F23): column k holds
+    n_R0^alpha V^beta - n_R0^beta V^alpha for (alpha, beta) = COMPONENT_INDICES[k].
+
+    All inputs are broadcastable arrays (here always shape (N_tau,)); returns an
+    array of shape (*shape, 6).
+    """
+    nx, ny, nz = np.asarray(nx), np.asarray(ny), np.asarray(nz)
+    out = np.empty(nx.shape + (6,), dtype=float)
+    out[..., 0] = Vx - nx * V0
+    out[..., 1] = Vy - ny * V0
+    out[..., 2] = Vz - nz * V0
+    out[..., 3] = nx * Vy - ny * Vx
+    out[..., 4] = nx * Vz - nz * Vx
+    out[..., 5] = ny * Vz - nz * Vy
+    return out
+
+
 def screen_schema():
     """Observation screen parameter schema."""
     pos_int = lambda x: x >= 1 and x.is_integer()
@@ -449,14 +485,7 @@ def _compute_single_electron_screen_field(r, u, w, tau, geometry: ScreenGeometry
             # Phase phi(tau) = r0^0(tau) + |R0(tau)|
             phi = r0_0 + R_dist  # (N_tau,)
 
-            # 6 upper-triangular components of (n_R0^alpha u^beta - n_R0^beta u^alpha)
-            nu_u = np.empty((N_tau, 6), dtype=float)
-            nu_u[:, 0] = ux - nx * u0
-            nu_u[:, 1] = uy - ny * u0
-            nu_u[:, 2] = uz - nz * u0
-            nu_u[:, 3] = nx * uy - ny * ux
-            nu_u[:, 4] = nx * uz - nz * ux
-            nu_u[:, 5] = ny * uz - nz * uy
+            nu_u = _wedge_n_v(nx, ny, nz, u0, ux, uy, uz)
 
             if method == 'simplified':
                 # Form 2 (FT-simplified.tex) with exact finite-interval boundary terms
@@ -490,14 +519,7 @@ def _compute_single_electron_screen_field(r, u, w, tau, geometry: ScreenGeometry
                 w_dot_n = w0 - (wx * nx + wy * ny + wz * nz)
                 u_dot_n_sq = u_dot_n * u_dot_n
 
-                # 6 components of (n_R0^alpha w^beta - n_R0^beta w^alpha)
-                nu_w = np.empty((N_tau, 6), dtype=float)
-                nu_w[:, 0] = wx - nx * w0
-                nu_w[:, 1] = wy - ny * w0
-                nu_w[:, 2] = wz - nz * w0
-                nu_w[:, 3] = nx * wy - ny * wx
-                nu_w[:, 4] = nx * wz - nz * wx
-                nu_w[:, 5] = ny * wz - nz * wy
+                nu_w = _wedge_n_v(nx, ny, nz, w0, wx, wy, wz)
 
                 F_l_tens = (u_dot_n[:, np.newaxis] * nu_w - w_dot_n[:, np.newaxis] * nu_u) / (R_dist[:, np.newaxis] * u_dot_n_sq[:, np.newaxis])
                 F_s_tens = nu_u / (R_dist[:, np.newaxis]**2 * u_dot_n_sq[:, np.newaxis])
