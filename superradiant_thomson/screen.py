@@ -14,6 +14,9 @@ from .parameters import (
 COMPONENT_NAMES = ('F01', 'F02', 'F03', 'F12', 'F13', 'F23')
 COMPONENT_INDICES = ((0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3))
 
+# Hartree atomic units set the Coulomb constant 1/(4*pi*epsilon_0) = 1, so epsilon_0 = 1/(4*pi).
+EPSILON_0_AU = 1.0 / (4.0 * np.pi)
+
 
 def _wedge_n_v(nx, ny, nz, V0, Vx, Vy, Vz):
     r"""Pack the 6 independent components of (n_R0^alpha V^beta - n_R0^beta V^alpha).
@@ -382,48 +385,118 @@ class ScreenResult:
         """Total Faraday tensor F_total = F_l + F_s + F_b, shape (N_omega, Ny, Nx, 6)."""
         return self.F_l + self.F_s + self.F_b
 
-    @property
-    def intensity(self) -> np.ndarray:
-        """Total tensor norm square sum sum_{mu < nu} |F_total^{mu nu}|^2, shape (N_omega, Ny, Nx)."""
-        return np.sum(np.abs(self.F_total)**2, axis=-1)
+    def fields(self, c: float | None = None) -> dict:
+        """Reconstruct complex Fourier field components (Ex,Ey,Ez,Bx,By,Bz) from F_total.
 
-    def compute_angular_momentum_flux_density(self, c: float | None = None) -> np.ndarray:
-        """Spectral angular momentum flux density dF_{J_z}(r, omega)/domega along Oz in atomic units.
-
-        Calculated using total fields F_total = F_l + F_s + F_b according to:
-            dF_{J_z}/domega = (c / (4*pi^2)) * Re[ x * (F03 * conj(F23) - F01 * conj(F12))
-                                                 - y * (F02 * conj(F12) + F03 * conj(F13)) ]
-
-        Returns:
-            Real NumPy array of shape (N_omega, Ny, Nx).
+        Uses the mapping E_x=cF^10, E_y=cF^20, E_z=cF^30, B_x=F^32, B_y=F^13, B_z=F^21
+        (md_helpers_proposed/11-numerical_calculation_of_observables.md), rewritten in
+        terms of the six stored upper-triangular components (F01,F02,F03,F12,F13,F23) via
+        F^{ji} = -F^{ij}. Each array has shape (N_omega, Ny, Nx).
         """
         if c is None:
             c = float(AtomicUnits().c)
+        F = self.F_total
+        F01, F02, F03, F12, F13, F23 = (F[..., i] for i in range(6))
+        return {
+            'E_x': -c * F01, 'E_y': -c * F02, 'E_z': -c * F03,
+            'B_x': -F23, 'B_y': F13, 'B_z': -F12,
+        }
 
-        F = self.F_total  # (N_omega, Ny, Nx, 6)
-        F01 = F[..., 0]
-        F02 = F[..., 1]
-        F03 = F[..., 2]
-        F12 = F[..., 3]
-        F13 = F[..., 4]
-        F23 = F[..., 5]
+    def _angular_derivative(self, field: np.ndarray) -> np.ndarray:
+        r"""Apply the transverse angular operator \hat L_z = x d/dy - y d/dx to a field.
 
-        grid_x = self.geometry.grid_x  # (Ny, Nx)
-        grid_y = self.geometry.grid_y  # (Ny, Nx)
+        Rectangular screen: finite differences on the Cartesian (x, y) grid.
+        Annular screen: \hat L_z reduces to d/dphi on the polar grid (periodic when the
+        screen spans a full circle, one-sided finite differences otherwise).
+        """
+        geom = self.geometry
+        if geom.shape_type == 'rectangular':
+            dfield_dx = np.gradient(field, geom.dx, axis=-1)
+            dfield_dy = np.gradient(field, geom.dy, axis=-2)
+            x = geom.grid_x[None, :, :]
+            y = geom.grid_y[None, :, :]
+            return x * dfield_dy - y * dfield_dx
+        phi = geom.phi_centers
+        phi_span = geom.Phi_max - geom.Phi_min
+        n = phi.size
+        if n > 1 and np.isclose(phi_span, 2.0 * np.pi, rtol=1e-9, atol=1e-9):
+            dphi = phi_span / n
+            return (np.roll(field, -1, axis=-2) - np.roll(field, 1, axis=-2)) / (2.0 * dphi)
+        return np.gradient(field, phi, axis=-2)
 
-        x = grid_x[None, :, :]
-        y = grid_y[None, :, :]
+    def spin_angular_momentum_density_z(self, c: float | None = None) -> np.ndarray:
+        """Spectral SAM density dS_z/domega = (4*epsilon_0/omega)*Im[Ex* Ey], shape (N_omega, Ny, Nx)."""
+        fields = self.fields(c)
+        omega = self.geometry.omega[:, None, None]
+        return (4.0 * EPSILON_0_AU / omega) * np.imag(np.conj(fields['E_x']) * fields['E_y'])
 
-        term_x = F03 * np.conj(F23) - F01 * np.conj(F12)
-        term_y = F02 * np.conj(F12) + F03 * np.conj(F13)
+    def orbital_angular_momentum_density_z(self, c: float | None = None) -> np.ndarray:
+        """Spectral OAM density dL_z/domega = (2*epsilon_0/omega)*sum_i Im[Ei* L_z Ei]."""
+        fields = self.fields(c)
+        omega = self.geometry.omega[:, None, None]
+        total = sum(np.imag(np.conj(fields[key]) * self._angular_derivative(fields[key]))
+                    for key in ('E_x', 'E_y', 'E_z'))
+        return (2.0 * EPSILON_0_AU / omega) * total
 
-        prefactor = c / (4.0 * np.pi**2)
-        return prefactor * np.real(x * term_x - y * term_y)
+    def total_angular_momentum_density_z(self, c: float | None = None) -> np.ndarray:
+        """Spectral TAM density dJ_z/domega = dL_z/domega + dS_z/domega."""
+        return self.orbital_angular_momentum_density_z(c) + self.spin_angular_momentum_density_z(c)
 
-    @property
-    def angular_momentum_flux_density(self) -> np.ndarray:
-        """Spectral angular momentum flux density dF_{J_z}/domega array of shape (N_omega, Ny, Nx)."""
-        return self.compute_angular_momentum_flux_density()
+    def spin_angular_momentum_flux_zz(self, c: float | None = None) -> np.ndarray:
+        """Spectral SAM flux dSigma_zz/domega = (2*epsilon_0*c^2/omega)*Im[Bx* Ex + By* Ey - Bz* Ez]."""
+        c = float(AtomicUnits().c) if c is None else float(c)
+        fields = self.fields(c)
+        omega = self.geometry.omega[:, None, None]
+        bracket = (np.conj(fields['B_x']) * fields['E_x'] + np.conj(fields['B_y']) * fields['E_y']
+                   - np.conj(fields['B_z']) * fields['E_z'])
+        return (2.0 * EPSILON_0_AU * c * c / omega) * np.imag(bracket)
+
+    def orbital_angular_momentum_flux_zz(self, c: float | None = None) -> np.ndarray:
+        """Spectral OAM flux dLambda_zz/domega = (2*eps0*c^2/omega)*Im[By* Lz(Ex) - Bx* Lz(Ey) + Bz* Ez]."""
+        c = float(AtomicUnits().c) if c is None else float(c)
+        fields = self.fields(c)
+        omega = self.geometry.omega[:, None, None]
+        lz_ex = self._angular_derivative(fields['E_x'])
+        lz_ey = self._angular_derivative(fields['E_y'])
+        bracket = (np.conj(fields['B_y']) * lz_ex - np.conj(fields['B_x']) * lz_ey
+                   + np.conj(fields['B_z']) * fields['E_z'])
+        return (2.0 * EPSILON_0_AU * c * c / omega) * np.imag(bracket)
+
+    def total_angular_momentum_flux_zz(self, c: float | None = None) -> np.ndarray:
+        """Spectral total (spin + orbital) angular momentum flux along Oz, dSigma_zz/domega + dLambda_zz/domega."""
+        return self.spin_angular_momentum_flux_zz(c) + self.orbital_angular_momentum_flux_zz(c)
+
+    def energy_density(self, c: float | None = None) -> np.ndarray:
+        """Spectral energy density du/domega = eps0*(|E|^2 + c^2*|B|^2), shape (N_omega, Ny, Nx)."""
+        c = float(AtomicUnits().c) if c is None else float(c)
+        fields = self.fields(c)
+        e_sq = sum(np.abs(fields[key])**2 for key in ('E_x', 'E_y', 'E_z'))
+        b_sq = sum(np.abs(fields[key])**2 for key in ('B_x', 'B_y', 'B_z'))
+        return EPSILON_0_AU * (e_sq + c * c * b_sq)
+
+    def energy_flux_z(self, c: float | None = None) -> np.ndarray:
+        """Spectral energy (Poynting) flux dPz/domega = 2*eps0*c^2*Re[Ex By* - Ey Bx*]."""
+        c = float(AtomicUnits().c) if c is None else float(c)
+        fields = self.fields(c)
+        bracket = fields['E_x'] * np.conj(fields['B_y']) - fields['E_y'] * np.conj(fields['B_x'])
+        return 2.0 * EPSILON_0_AU * c * c * np.real(bracket)
+
+    def integrate_over_screen(self, quantity: np.ndarray) -> np.ndarray:
+        """Integrate a per-pixel spectral quantity (N_omega, Ny, Nx) over the screen surface.
+
+        Rectangular screen: composite trapezoidal rule over dx dy.
+        Annular screen: composite trapezoidal rule over rho drho dphi, including the
+        radial Jacobian weight rho.
+        Returns a real array of shape (N_omega,).
+        """
+        geom = self.geometry
+        quantity = np.asarray(quantity, dtype=float)
+        if geom.shape_type == 'rectangular':
+            inner = np.trapezoid(quantity, geom.x, axis=-1)
+            return np.trapezoid(inner, geom.y, axis=-1)
+        weighted = quantity * geom.r_centers
+        inner = np.trapezoid(weighted, geom.r_centers, axis=-1)
+        return np.trapezoid(inner, geom.phi_centers, axis=-1)
 
 
 def _compute_single_electron_screen_field(r, u, w, tau, geometry: ScreenGeometry, c: float,

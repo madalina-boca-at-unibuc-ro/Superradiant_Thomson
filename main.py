@@ -48,7 +48,7 @@ INPUTS = {
     'laser.wing_factor': 5,
     'laser.p': 0,
     'laser.m': 1,
-    'laser.epsilon': -1,
+    'laser.epsilon': 1,
     'laser.w_0': {'value': 75, 'unit': 'lambda'},
     'laser.zeta_x': 1.0,
     'laser.zeta_y': 0.0 + 1.0j,
@@ -69,21 +69,21 @@ INPUTS = {
     'electron.sigma_px_beam': {'value': 0.0, 'unit': 'c'},
     'electron.sigma_py_beam': {'value': 0.0, 'unit': 'c'},
     'electron.sigma_pz_beam': {'value': 0.0, 'unit': 'c'},
-    'screen.shape': 'rectangular',  # 'rectangular' or 'annular'
+    'screen.shape': 'annular',  # 'rectangular' or 'annular'
     'screen.z_screen': {'value': -144000.0, 'unit': 'lambda'},
     'screen.width': {'value': 400.0, 'unit': 'lambda'},
     'screen.height': {'value': 400.0, 'unit': 'lambda'},
     'screen.Nx': 64,
     'screen.Ny': 64,
     'screen.R_min': {'value': 0.0, 'unit': 'lambda'},
-    'screen.R_max': {'value': 400.0, 'unit': 'lambda'},
+    'screen.R_max': {'value': 200.0, 'unit': 'lambda'},
     'screen.N_R': 64,
     'screen.Phi_min': {'value': 0.0, 'unit': 'pi'},
     'screen.Phi_max': {'value': 2.0, 'unit': 'pi'},
     'screen.N_Phi': 64,
     'screen.N_min': 1,
     'screen.N_max': 3,
-    'screen.method': 'simplified',  # 'simplified' (Form 2) or 'direct' (Form 1)
+    'screen.method': 'direct',  # 'simplified' (Form 2) or 'direct' (Form 1)
 }
 
 
@@ -145,8 +145,8 @@ def main(*, show=False, output_root=None, inputs=None, output_pdf=None):
         from superradiant_thomson.plotting import (
             plot_temporal_factor, plot_lg_intensity, plot_laser_fields,
             plot_electron_initial_distribution, plot_electron_ensemble_trajectories,
-            plot_screen_emitted_intensity, generate_all_screen_breakdown_plots,
-            plot_screen_angular_momentum_flux_density, generate_parameters_pdf,
+            generate_all_screen_breakdown_plots, generate_all_screen_observable_plots,
+            generate_parameters_pdf,
         )
         import matplotlib
         if not show:
@@ -330,21 +330,73 @@ def main(*, show=False, output_root=None, inputs=None, output_pdf=None):
             screen_meta['Phi_min_rad'] = screen_geom.Phi_min
             screen_meta['Phi_max_rad'] = screen_geom.Phi_max
         metadata['screen_emitted_field'] = screen_meta
-        fig_screen, _ = plot_screen_emitted_intensity(screen_result, lambda_scale=mode.get_lambda(), w_0=mode.w_0, pulse=pulse)
-        figures.append(fig_screen)
-        fig_screen.savefig(run_dir / 'screen_emitted_intensity.png', dpi=180)
 
-        fig_am, _ = plot_screen_angular_momentum_flux_density(screen_result, lambda_scale=mode.get_lambda(), w_0=mode.w_0, pulse=pulse, c=units.c)
-        figures.append(fig_am)
-        fig_am.savefig(run_dir / 'screen_angular_momentum_flux.png', dpi=180)
+        # Per-harmonic surface integrals of the spectral electromagnetic observables
+        # (md_helpers_proposed/11-numerical_calculation_of_observables.md), written to run.json.
+        dSz = screen_result.spin_angular_momentum_density_z(c=units.c)
+        dLz = screen_result.orbital_angular_momentum_density_z(c=units.c)
+        dJz = dLz + dSz
+        dSigma_zz = screen_result.spin_angular_momentum_flux_zz(c=units.c)
+        dLambda_zz = screen_result.orbital_angular_momentum_flux_zz(c=units.c)
+        du = screen_result.energy_density(c=units.c)
+        dPz = screen_result.energy_flux_z(c=units.c)
+        int_dSz = screen_result.integrate_over_screen(dSz)
+        int_dLz = screen_result.integrate_over_screen(dLz)
+        int_dJz = screen_result.integrate_over_screen(dJz)
+        int_dSigma_zz = screen_result.integrate_over_screen(dSigma_zz)
+        int_dLambda_zz = screen_result.integrate_over_screen(dLambda_zz)
+        int_du = screen_result.integrate_over_screen(du)
+        int_dPz = screen_result.integrate_over_screen(dPz)
+        # Far-field identity: flux = c * n_z * density for any locally-conserved quantity carried
+        # by radiation propagating at c, so each flux/density ratio should be +-c (sign matching
+        # which side of the source the screen is on).
+        int_dJflux = int_dSigma_zz + int_dLambda_zz
+        energy_ratio = int_dPz / int_du
+        spin_ratio = int_dSigma_zz / int_dSz
+        angular_momentum_ratio = int_dJflux / int_dJz
+        metadata['screen_observables'] = {
+            'description': 'Per-harmonic screen-surface integrals of the spectral observables '
+                            '(md_helpers_proposed/11-numerical_calculation_of_observables.md), '
+                            'plus their flux/density ratios (expected +-c, sign matching which '
+                            'side of the source screen.z_screen is on). '
+                            'int_dLambda_zz_domega (orbital flux) extends the columns the doc '
+                            'requested so every density has a matching flux integral: '
+                            'int_dSigma_zz_domega+int_dLambda_zz_domega is the total angular '
+                            'momentum flux matching int_dJz_domega (=int_dSz_domega+int_dLz_domega).',
+            'rows': [
+                {
+                    'N': int(screen_geom.harmonics[iw]) if screen_geom.harmonics is not None else iw + 1,
+                    'omega_au': float(screen_geom.omega[iw]),
+                    'int_dSz_domega': float(int_dSz[iw]),
+                    'int_dLz_domega': float(int_dLz[iw]),
+                    'int_dJz_domega': float(int_dJz[iw]),
+                    'int_dSigma_zz_domega': float(int_dSigma_zz[iw]),
+                    'int_dLambda_zz_domega': float(int_dLambda_zz[iw]),
+                    'int_du_domega': float(int_du[iw]),
+                    'int_dPz_domega': float(int_dPz[iw]),
+                    'energy_flux_density_ratio': float(energy_ratio[iw]),
+                    'spin_flux_density_ratio': float(spin_ratio[iw]),
+                    'angular_momentum_flux_density_ratio': float(angular_momentum_ratio[iw]),
+                }
+                for iw in range(screen_geom.omega.size)
+            ],
+        }
 
-        # Generate 18 breakdown figures for each calculated frequency in distinct subfolders
-        # Each figure is a 2x2 panel: Real, Imag, Modulus, Phase
+        # Generate 18 Faraday-tensor-component breakdown figures per harmonic, in distinct
+        # subfolders. Each figure is a 2x2 panel: Real, Imag, Modulus, Phase.
         breakdown_figs = generate_all_screen_breakdown_plots(
             screen_result, omega_idx=None, lambda_scale=mode.get_lambda(), unit_label='\\lambda', w_0=mode.w_0, pulse=pulse,
             run_dir=run_dir, close_figs=not show
         )
         figures.extend(breakdown_figs)
+
+        # Generate 6 derived-observable heatmaps (energy/angular-momentum/spin density and flux)
+        # per harmonic, in their own distinct subfolders.
+        observable_figs = generate_all_screen_observable_plots(
+            screen_result, c=units.c, lambda_scale=mode.get_lambda(), w_0=mode.w_0, pulse=pulse,
+            run_dir=run_dir, close_figs=not show
+        )
+        figures.extend(observable_figs)
         metadata['status'] = 'complete'
         metadata['finished_utc'] = datetime.now(timezone.utc).isoformat()
         write_json(run_dir / 'run.json', metadata)
