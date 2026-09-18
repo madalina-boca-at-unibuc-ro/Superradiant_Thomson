@@ -32,9 +32,3 @@ def write_json(path, data):
     temporary.write_text(json.dumps(data, indent=2, allow_nan=False, default=_json_default) + '\n', encoding='utf-8')
     temporary.replace(path)
 
-
-def write_parameters_pdf(path, parameters, units=None, run_dir=None):
-    """Generate and save simulation parameters PDF."""
-    from .plotting.parameters_pdf import generate_parameters_pdf
-    return generate_parameters_pdf(path, parameters, units=units, run_dir=run_dir)
-

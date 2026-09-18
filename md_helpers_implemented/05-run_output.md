@@ -10,7 +10,6 @@ Each simulation run automatically saves:
 
 - `inputs.json`: original raw input configuration dictionary.
 - `parameters.json`: resolved atomic-unit values and original units/defaults mapping.
-- `parameters.pdf`: multi-page PDF document summarizing all input parameters, units, resolved atomic-unit values, descriptions, and derived physical scales.
 - `run.json`: running/complete/failed status, timestamps, constants, library versions, pulse timing, sampling metadata, screen resolution, residual metrics, and error stack trace on failure.
 - `temporal_factor.npz` & `temporal_factor.png`: complex temporal envelope diagnostic.
 - `lg_mode.npz`: Laguerre–Gauss spatial mode line evaluation and analytic derivatives.

@@ -14,7 +14,6 @@ from .screen import (
     generate_all_screen_breakdown_plots,
     generate_all_screen_observable_plots,
 )
-from .parameters_pdf import generate_parameters_pdf
 
 __all__ = [
     'plot_temporal_factor', 'plot_lg_intensity', 'plot_laser_fields',
@@ -24,6 +23,5 @@ __all__ = [
     'plot_electron_acceleration_trajectories', 'plot_electron_ensemble_trajectories',
     'plot_screen_faraday_component_breakdown', 'generate_all_screen_breakdown_plots',
     'generate_all_screen_observable_plots',
-    'generate_parameters_pdf',
 ]
 

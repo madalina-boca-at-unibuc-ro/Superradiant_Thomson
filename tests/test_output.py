@@ -31,7 +31,6 @@ class OutputTests(unittest.TestCase):
                     self.assertEqual(data['time'].shape, (1001,))
                     np.testing.assert_allclose(np.abs(data['temporal_factor']), data['envelope'])
                 self.assertTrue((run / 'temporal_factor.png').stat().st_size > 0)
-                self.assertTrue((run / 'parameters.pdf').stat().st_size > 0)
                 with patch.object(main, 'sample_pulse', side_effect=ValueError('test failure')):
                     with self.assertRaises(ValueError):
                         main.main(output_root=root)
