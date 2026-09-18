@@ -6,12 +6,50 @@ from ..screen import COMPONENT_NAMES, ScreenResult
 from .style import label_axes, add_dual_unit_axes
 
 
-def _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap, vmin=None, vmax=None, w_0=None):
-    """Draw a 2D scalar field heatmap on ax using pcolormesh for annular screen or imshow for rectangular screen."""
+def _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap, vmin=None, vmax=None, w_0=None,
+                     shading='gouraud'):
+    """Draw a 2D scalar field heatmap on ax using pcolormesh for annular screen or imshow for rectangular screen.
+
+    shading: annular screens only. 'gouraud' (default) interpolates color linearly across each
+    (r, phi) cell from its corner *values* (the cell centers computed by ScreenGeometry), avoiding
+    the flat-shaded pie-slice/mosaic faceting a coarse polar grid produces once mapped to Cartesian
+    x/y -- worst at large radius, where each azimuthal wedge spans a wide arc length. Pass 'flat'
+    for a cyclic/branch-cut quantity (e.g. a phase in [-pi, pi]), where linearly interpolating
+    color across the wrap would blend visually unrelated colors.
+    """
     if geom.shape_type == 'annular':
-        X_c = geom.grid_x_corners / scale_spatial
-        Y_c = geom.grid_y_corners / scale_spatial
-        im = ax.pcolormesh(X_c, Y_c, data_2d, cmap=cmap, vmin=vmin, vmax=vmax, shading='flat')
+        if shading == 'gouraud':
+            X = geom.grid_x / scale_spatial
+            Y = geom.grid_y / scale_spatial
+            C = data_2d
+            # Gouraud only interpolates between the cell centers it's given, so without help it
+            # leaves two gaps a coarse-grid flat shading never had: a pac-man-style wedge one cell
+            # wide at the phi_min/phi_max seam (it has no notion the phi axis is periodic), and a
+            # pinhole at the origin when R_min=0 (the innermost ring's *centers* sit at r>0, an
+            # equal-area cell-center radius, never exactly at r=0).
+            #
+            # Close the phi seam by duplicating the first phi row: X/Y are exact reuses (cos/sin
+            # are 2*pi-periodic, so the Cartesian position at phi_centers[0]+2*pi is identical to
+            # phi_centers[0]), and C reuses the first row's field values as the best available
+            # estimate for that closing wedge.
+            phi_span = geom.Phi_max - geom.Phi_min
+            if geom.N_Phi > 1 and np.isclose(phi_span, 2.0 * np.pi, rtol=1e-9, atol=1e-9):
+                X = np.vstack([X, X[:1, :]])
+                Y = np.vstack([Y, Y[:1, :]])
+                C = np.vstack([C, C[:1, :]])
+            # Close the center pinhole by prepending a column of coincident points at the origin
+            # (X=Y=0 for every phi), reusing the innermost ring's field values as the best available
+            # estimate; pcolormesh draws the resulting degenerate (zero-area-at-one-corner) quads
+            # like any other repeated vertex.
+            if geom.R_min == 0.0:
+                X = np.hstack([np.zeros((X.shape[0], 1)), X])
+                Y = np.hstack([np.zeros((Y.shape[0], 1)), Y])
+                C = np.hstack([C[:, :1], C])
+            im = ax.pcolormesh(X, Y, C, cmap=cmap, vmin=vmin, vmax=vmax, shading='gouraud')
+        else:
+            X_c = geom.grid_x_corners / scale_spatial
+            Y_c = geom.grid_y_corners / scale_spatial
+            im = ax.pcolormesh(X_c, Y_c, data_2d, cmap=cmap, vmin=vmin, vmax=vmax, shading='flat')
         r_max_disp = (geom.R_max or 1.0) / scale_spatial
         ax.set_xlim(-1.05 * r_max_disp, 1.05 * r_max_disp)
         ax.set_ylim(-1.05 * r_max_disp, 1.05 * r_max_disp)
@@ -27,63 +65,6 @@ def _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap, vmin=None, vmax=Non
         add_dual_unit_axes(ax, lambda_scale=scale_spatial, w_0=w_0)
 
     return im
-
-
-def plot_screen_emitted_intensity(result: ScreenResult, *, lambda_scale=None, w_0=None, pulse=None,
-                                  omega_idx=None, fig=None):
-    """Plot 2D heatmap(s) of emitted spectral intensity on the observation screen.
-
-    result: ScreenResult instance.
-    lambda_scale: laser wavelength scale in atomic units for coordinate display in lambda.
-    w_0: laser waist scale in atomic units for top/right secondary axis display in w_0.
-    pulse: optional TemporalFactor instance for scaling frequency to omega_0.
-    omega_idx: integer frequency index to plot single frequency, or None to plot all frequencies.
-    Returns: (fig, axs).
-    """
-    geom = result.geometry
-    intensity = result.intensity  # (N_omega, Ny, Nx)
-
-    scale_spatial, label_spatial = (float(lambda_scale), '\\lambda') if lambda_scale is not None else (1.0, 'a.u.')
-    if scale_spatial <= 0:
-        raise ValueError('lambda_scale must be positive')
-
-    scale_w, label_w = (pulse.timing.omega, '\\omega_0') if pulse is not None else (1.0, 'a.u.')
-
-    if omega_idx is not None:
-        idx = int(omega_idx)
-        if idx < 0 or idx >= geom.omega.size:
-            raise IndexError('omega_idx out of bounds')
-        indices = [idx]
-    else:
-        indices = list(range(geom.omega.size))
-
-    n_plots = len(indices)
-    if fig is None:
-        if n_plots == 1:
-            fig, axs = plt.subplots(1, 1, figsize=(6, 5), layout='constrained')
-            axs = np.array([axs])
-        else:
-            fig, axs = plt.subplots(1, n_plots, figsize=(4.5 * n_plots, 4.5), layout='constrained')
-            if n_plots == 1:
-                axs = np.array([axs])
-    else:
-        axs = np.atleast_1d(fig.axes)
-
-    for p_idx, iw in enumerate(indices):
-        ax = axs.flat[p_idx]
-        w_val = geom.omega[iw] / scale_w
-        N_val = geom.harmonics[iw] if (geom.harmonics is not None and iw < len(geom.harmonics)) else (iw + 1)
-        data_2d = intensity[iw]
-
-        im = _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap='inferno', w_0=w_0)
-        cbar = fig.colorbar(im, ax=ax, shrink=0.85)
-        cbar.set_label('$\\sum_{\\mu<\\nu} |\\tilde{F}^{\\mu\\nu}|^2$ (a.u.)', fontsize=9)
-
-        label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$',
-                   title=f'Emitted Intensity ($\\omega_{{{N_val}}} = {w_val:.4g}\\,{label_w}$)')
-
-    fig.suptitle(f'Observation Screen Radiation Field ($Z_0 = {geom.z_screen / scale_spatial:.1f}\\,{label_spatial}$)', fontsize=12)
-    return fig, axs
 
 
 def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx: int,
@@ -165,7 +146,9 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
 
     # 4. Phase Part
     ax = axs[1, 1]
-    im_phase = _draw_2d_heatmap(ax, phase_part, geom, scale_spatial, cmap='twilight', vmin=-np.pi, vmax=np.pi, w_0=w_0)
+    # Phase wraps at +-pi (a branch cut), so Gouraud's linear color interpolation across a
+    # cell boundary there would blend visually unrelated colors; flat shading avoids that.
+    im_phase = _draw_2d_heatmap(ax, phase_part, geom, scale_spatial, cmap='twilight', vmin=-np.pi, vmax=np.pi, w_0=w_0, shading='flat')
     cbar_phase = fig.colorbar(im_phase, ax=ax, shrink=0.85, ticks=[-np.pi, -np.pi/2, 0, np.pi/2, np.pi])
     cbar_phase.ax.set_yticklabels(['$-\\pi$', '$-\\pi/2$', '$0$', '$\\pi/2$', '$\\pi$'])
     label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$',
@@ -247,63 +230,88 @@ def generate_all_screen_breakdown_plots(result: ScreenResult, omega_idx: int | N
     return figs
 
 
-def plot_screen_angular_momentum_flux_density(result: ScreenResult, *, lambda_scale=None, w_0=None, pulse=None,
-                                               c=None, omega_idx=None, fig=None):
-    """Plot 2D heatmap(s) of spectral angular momentum flux density dF_{J_z}/domega on the observation screen.
+# (name, ScreenResult method, output filename stem, colorbar/title label, diverging colormap)
+_OBSERVABLE_SPECS = (
+    ('energy_density', 'screen_energy_density', '$du/d\\omega$ (a.u.)', False),
+    ('energy_flux_z', 'screen_energy_flux', '$dP_z/d\\omega$ (a.u.)', True),
+    ('total_angular_momentum_density_z', 'screen_angular_momentum_density', '$dJ_z/d\\omega$ (a.u.)', True),
+    ('total_angular_momentum_flux_zz', 'screen_angular_momentum_flux',
+     '$d\\Sigma_{zz}/d\\omega + d\\Lambda_{zz}/d\\omega$ (a.u.)', True),
+    ('spin_angular_momentum_density_z', 'screen_spin_density', '$dS_z/d\\omega$ (a.u.)', True),
+    ('spin_angular_momentum_flux_zz', 'screen_spin_flux', '$d\\Sigma_{zz}/d\\omega$ (a.u.)', True),
+)
 
-    result: ScreenResult instance.
-    lambda_scale: laser wavelength scale in atomic units for coordinate display in lambda.
-    w_0: laser waist scale in atomic units for top/right secondary axis display in w_0.
-    pulse: optional TemporalFactor instance for scaling frequency to omega_0.
-    c: speed of light in atomic units.
-    omega_idx: integer frequency index to plot single frequency, or None to plot all frequencies.
-    Returns: (fig, axs).
-    """
+
+def _plot_screen_observable_heatmap(result: ScreenResult, data_2d, *, label, title,
+                                    lambda_scale=None, w_0=None, diverging=True, fig=None):
+    """Plot a single 2D heatmap of one already-evaluated per-pixel screen observable."""
     geom = result.geometry
-    flux_z = result.compute_angular_momentum_flux_density(c=c)  # (N_omega, Ny, Nx)
-
     scale_spatial, label_spatial = (float(lambda_scale), '\\lambda') if lambda_scale is not None else (1.0, 'a.u.')
     if scale_spatial <= 0:
         raise ValueError('lambda_scale must be positive')
 
-    scale_w, label_w = (pulse.timing.omega, '\\omega_0') if pulse is not None else (1.0, 'a.u.')
-
-    if omega_idx is not None:
-        idx = int(omega_idx)
-        if idx < 0 or idx >= geom.omega.size:
-            raise IndexError('omega_idx out of bounds')
-        indices = [idx]
-    else:
-        indices = list(range(geom.omega.size))
-
-    n_plots = len(indices)
     if fig is None:
-        if n_plots == 1:
-            fig, axs = plt.subplots(1, 1, figsize=(6, 5), layout='constrained')
-            axs = np.array([axs])
-        else:
-            fig, axs = plt.subplots(1, n_plots, figsize=(4.5 * n_plots, 4.5), layout='constrained')
-            if n_plots == 1:
-                axs = np.array([axs])
+        fig, ax = plt.subplots(1, 1, figsize=(6, 5), layout='constrained')
     else:
-        axs = np.atleast_1d(fig.axes)
+        ax = fig.axes[0]
 
-    for p_idx, iw in enumerate(indices):
-        ax = axs.flat[p_idx]
+    if diverging:
+        vmax = np.max(np.abs(data_2d))
+        vmax = vmax if vmax > 0 else 1.0
+        im = _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap='RdBu_r', vmin=-vmax, vmax=vmax, w_0=w_0)
+    else:
+        vmax = np.max(data_2d)
+        vmax = vmax if vmax > 0 else 1.0
+        im = _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap='inferno', vmin=0, vmax=vmax, w_0=w_0)
+
+    cbar = fig.colorbar(im, ax=ax, shrink=0.85)
+    cbar.set_label(label, fontsize=9)
+    label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$', title=title)
+    return fig, ax
+
+
+def generate_all_screen_observable_plots(result: ScreenResult, *, c=None, lambda_scale=None,
+                                         w_0=None, pulse=None, run_dir=None, close_figs=False):
+    """Generate one heatmap per spectral electromagnetic observable, per harmonic.
+
+    Plots energy density/flux, total (spin+orbital) angular-momentum density/flux, and spin
+    angular-momentum density/flux (md_helpers_proposed/11-numerical_calculation_of_observables.md),
+    each evaluated from the total field F_total = F_l + F_s + F_b.
+
+    When `run_dir` is provided, saves 6 PNGs per harmonic into a distinct subfolder per frequency
+    (e.g. `screen_observables_N_1_omega_0.9950_omega0`), mirroring
+    `generate_all_screen_breakdown_plots`'s per-harmonic folder layout.
+    """
+    from pathlib import Path
+    geom = result.geometry
+    scale_w, label_w = (pulse.timing.omega, '\\omega_0') if pulse is not None else (1.0, 'a.u.')
+    folder_w_label = 'omega0' if pulse is not None else 'au'
+
+    values = {name: getattr(result, name)(c=c) for name, *_ in _OBSERVABLE_SPECS}
+
+    figs = []
+    for iw in range(geom.omega.size):
         w_val = geom.omega[iw] / scale_w
         N_val = geom.harmonics[iw] if (geom.harmonics is not None and iw < len(geom.harmonics)) else (iw + 1)
-        data_2d = flux_z[iw]
 
-        vmax = np.max(np.abs(data_2d))
-        if vmax == 0:
-            vmax = 1.0
-        im = _draw_2d_heatmap(ax, data_2d, geom, scale_spatial, cmap='RdBu_r', vmin=-vmax, vmax=vmax, w_0=w_0)
-        cbar = fig.colorbar(im, ax=ax, shrink=0.85)
-        cbar.set_label('$d\\mathcal{F}_{J_z}/d\\omega$ (a.u.)', fontsize=9)
+        if run_dir is not None:
+            target_dir = Path(run_dir) / f'screen_observables_N_{N_val}_omega_{w_val:.4g}_{folder_w_label}'
+            target_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            target_dir = None
 
-        label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$',
-                   title=f'Angular Momentum Flux ($\\omega_{{{N_val}}} = {w_val:.4g}\\,{label_w}$)')
+        for name, fname, label, diverging in _OBSERVABLE_SPECS:
+            title = f'{label.split(" (")[0]} ($\\omega_{{{N_val}}} = {w_val:.4g}\\,{label_w}$)'
+            fig, _ = _plot_screen_observable_heatmap(
+                result, values[name][iw], label=label, title=title,
+                lambda_scale=lambda_scale, w_0=w_0, diverging=diverging,
+            )
+            if target_dir is not None:
+                fig.savefig(target_dir / f'{fname}.png', dpi=180)
+            if close_figs:
+                plt.close(fig)
+            else:
+                figs.append(fig)
 
-    fig.suptitle(f'Spectral Angular Momentum Flux Density Along $Oz$ ($Z_0 = {geom.z_screen / scale_spatial:.1f}\\,{label_spatial}$)', fontsize=12)
-    return fig, axs
+    return figs
 

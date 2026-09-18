@@ -14,8 +14,9 @@ from superradiant_thomson.screen import (
     _compute_single_electron_screen_field,
 )
 from superradiant_thomson.plotting.screen import (
-    plot_screen_emitted_intensity, plot_screen_faraday_component_breakdown,
-    generate_all_screen_breakdown_plots,
+    plot_screen_faraday_component_breakdown,
+    generate_all_screen_breakdown_plots, generate_all_screen_observable_plots,
+    _OBSERVABLE_SPECS,
 )
 
 
@@ -272,9 +273,6 @@ class TestScreenEvaluator(unittest.TestCase):
     def test_screen_plotting_functions(self):
         """Plotting functions return figure and axes without throwing exceptions."""
         result = compute_screen_emitted_field(self.electron, self.geom, self.units.c, max_workers=1)
-        fig1, axs1 = plot_screen_emitted_intensity(result, lambda_scale=self.mode.get_lambda(), pulse=self.pulse)
-        self.assertIsNotNone(fig1)
-        plt.close(fig1)
 
         fig2, axs2 = plot_screen_faraday_component_breakdown(
             result, component_idx=0, contribution='total', omega_idx=0,
@@ -313,30 +311,101 @@ class TestScreenEvaluator(unittest.TestCase):
         mass_res = sample_1.mass_shell_residual(self.units.c)
         np.testing.assert_allclose(mass_res, 0.0, atol=1e-6)
 
-    def test_angular_momentum_flux_density(self):
-        """Test calculation of spectral angular momentum flux density on screen."""
+    def test_spectral_observables_shapes_and_finiteness(self):
+        """New spectral observables (md_helpers_proposed/11) have the right shape and are finite."""
         _, _, _, res = compute_screen_emitted_field_from_laser_and_bunch(
             self.mode, self.amp, self.pulse, self.units, self.params, self.geom,
             max_workers=1
         )
-        flux_z = res.angular_momentum_flux_density
-        self.assertEqual(flux_z.shape, (self.geom.omega.size, self.geom.Ny, self.geom.Nx))
-        self.assertTrue(np.all(np.isfinite(flux_z)))
+        shape = (self.geom.omega.size, self.geom.Ny, self.geom.Nx)
+        quantities = (
+            res.spin_angular_momentum_density_z(c=self.units.c),
+            res.orbital_angular_momentum_density_z(c=self.units.c),
+            res.total_angular_momentum_density_z(c=self.units.c),
+            res.spin_angular_momentum_flux_zz(c=self.units.c),
+            res.orbital_angular_momentum_flux_zz(c=self.units.c),
+            res.total_angular_momentum_flux_zz(c=self.units.c),
+            res.energy_density(c=self.units.c),
+            res.energy_flux_z(c=self.units.c),
+        )
+        for quantity in quantities:
+            self.assertEqual(quantity.shape, shape)
+            self.assertTrue(np.all(np.isfinite(quantity)))
 
-        # Verify on-axis cancellation: at x=0, y=0 pixel, flux_z must be identically 0
-        # Create a geometry with an odd pixel count so (0,0) is an exact grid center pixel
+        # Energy density is a sum of squared moduli, so it cannot be negative.
+        self.assertTrue(np.all(res.energy_density(c=self.units.c) >= 0.0))
+
+    def test_total_angular_momentum_is_sum_of_spin_and_orbital(self):
+        """dJ_z/domega and the total flux are exactly the spin + orbital decomposition."""
+        _, _, _, res = compute_screen_emitted_field_from_laser_and_bunch(
+            self.mode, self.amp, self.pulse, self.units, self.params, self.geom,
+            max_workers=1
+        )
+        np.testing.assert_allclose(
+            res.total_angular_momentum_density_z(c=self.units.c),
+            res.orbital_angular_momentum_density_z(c=self.units.c) + res.spin_angular_momentum_density_z(c=self.units.c),
+        )
+        np.testing.assert_allclose(
+            res.total_angular_momentum_flux_zz(c=self.units.c),
+            res.orbital_angular_momentum_flux_zz(c=self.units.c) + res.spin_angular_momentum_flux_zz(c=self.units.c),
+        )
+
+    def test_orbital_angular_momentum_density_vanishes_on_axis(self):
+        """The Lz = x d/dy - y d/dx operator forces the orbital density to vanish at the origin."""
+        _, _, _, res = compute_screen_emitted_field_from_laser_and_bunch(
+            self.mode, self.amp, self.pulse, self.units, self.params, self.geom,
+            max_workers=1
+        )
+        # Odd pixel count so (0, 0) is an exact grid center pixel.
         odd_geom = ScreenGeometry(z_screen=1000.0, width=50.0, height=50.0, Nx=3, Ny=3,
                                   omega=np.array([0.057]))
         res_odd = ScreenResult(odd_geom, res.F_l[:1, :3, :3, :], res.F_s[:1, :3, :3, :], res.F_b[:1, :3, :3, :])
-        flux_odd = res_odd.compute_angular_momentum_flux_density(c=self.units.c)
-        # Center pixel (y_idx=1, x_idx=1) corresponds to x=0, y=0
-        self.assertAlmostEqual(flux_odd[0, 1, 1], 0.0, places=12)
+        self.assertEqual(odd_geom.grid_x[1, 1], 0.0)
+        self.assertEqual(odd_geom.grid_y[1, 1], 0.0)
+        lz_density = res_odd.orbital_angular_momentum_density_z(c=self.units.c)
+        self.assertAlmostEqual(lz_density[0, 1, 1], 0.0, places=12)
 
-        # Verify plotting helper function
-        from superradiant_thomson.plotting.screen import plot_screen_angular_momentum_flux_density
-        fig, _ = plot_screen_angular_momentum_flux_density(res, lambda_scale=self.mode.get_lambda(), pulse=self.pulse)
-        self.assertIsNotNone(fig)
-        plt.close(fig)
+    def test_screen_surface_integration(self):
+        """Surface integrals over the screen return one finite value per frequency."""
+        _, _, _, res = compute_screen_emitted_field_from_laser_and_bunch(
+            self.mode, self.amp, self.pulse, self.units, self.params, self.geom,
+            max_workers=1
+        )
+        integral = res.integrate_over_screen(res.energy_density(c=self.units.c))
+        self.assertEqual(integral.shape, (self.geom.omega.size,))
+        self.assertTrue(np.all(np.isfinite(integral)))
+        # Energy density is nonnegative, so its screen integral cannot be negative.
+        self.assertTrue(np.all(integral >= 0.0))
+
+    def test_screen_observable_plots(self):
+        """generate_all_screen_observable_plots returns one figure per observable per harmonic."""
+        result = compute_screen_emitted_field(self.electron, self.geom, self.units.c, max_workers=1)
+        figs = generate_all_screen_observable_plots(
+            result, c=self.units.c, lambda_scale=self.mode.get_lambda(), pulse=self.pulse
+        )
+        self.assertEqual(len(figs), self.geom.omega.size * len(_OBSERVABLE_SPECS))
+        for f in figs:
+            self.assertIsNotNone(f)
+            plt.close(f)
+
+    def test_screen_observable_plots_write_per_harmonic_folders(self):
+        """Each harmonic gets its own subfolder containing all 6 observable PNGs."""
+        import tempfile
+        from pathlib import Path
+
+        result = compute_screen_emitted_field(self.electron, self.geom, self.units.c, max_workers=1)
+        with tempfile.TemporaryDirectory() as run_dir:
+            figs = generate_all_screen_observable_plots(
+                result, c=self.units.c, lambda_scale=self.mode.get_lambda(), pulse=self.pulse,
+                run_dir=run_dir, close_figs=True
+            )
+            self.assertEqual(figs, [])
+            subdirs = sorted(p for p in Path(run_dir).iterdir() if p.is_dir())
+            self.assertEqual(len(subdirs), self.geom.omega.size)
+            for subdir in subdirs:
+                pngs = sorted(p.name for p in subdir.glob('*.png'))
+                expected = sorted(f'{fname}.png' for _, fname, _, _ in _OBSERVABLE_SPECS)
+                self.assertEqual(pngs, expected)
 
 
 if __name__ == '__main__':

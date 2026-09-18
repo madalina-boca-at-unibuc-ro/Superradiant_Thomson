@@ -7,6 +7,7 @@ from unittest.mock import patch
 import numpy as np
 
 from superradiant_thomson.output import create_run_directory
+from superradiant_thomson.parameters import AtomicUnits
 
 
 class OutputTests(unittest.TestCase):
@@ -35,3 +36,33 @@ class OutputTests(unittest.TestCase):
                         main.main(output_root=root)
                 statuses = [json.loads(p.read_text())['status'] for p in Path(root).glob('*/run.json')]
                 self.assertCountEqual(statuses, ['complete', 'failed'])
+
+    def test_screen_observable_flux_density_ratio_equals_c(self):
+        """Physical identity in run.json: integrated flux / integrated density along Oz is +-c.
+
+        For radiation far from the source, flux = c * n_z * density for any locally-conserved
+        quantity it carries (all field components share the same phase velocity c in vacuum), so
+        the ratio should be +c if the screen sits on the +Oz side of the source and -c if it sits
+        on the -Oz side. Checked for all three plotted density/flux pairs: energy, total
+        (spin+orbital) angular momentum, and spin angular momentum alone. The ratios themselves are
+        precomputed and stored in run.json (no separate run_log.txt is written anymore).
+        """
+        import main
+        c = AtomicUnits().c
+        fast_inputs = dict(main.INPUTS, **{'electron.N': 2, 'screen.Nx': 4, 'screen.Ny': 4})
+        z_screen_value = fast_inputs['screen.z_screen']
+        z_screen_value = z_screen_value['value'] if isinstance(z_screen_value, dict) else z_screen_value
+        expected_sign = 1.0 if z_screen_value >= 0 else -1.0
+
+        with TemporaryDirectory() as root:
+            with patch.object(main, 'INPUTS', fast_inputs):
+                run = main.main(output_root=root)
+            self.assertFalse((run / 'run_log.txt').exists())
+            rows = json.loads((run / 'run.json').read_text())['screen_observables']['rows']
+
+        self.assertGreater(len(rows), 0)
+        for row in rows:
+            for name in ('energy_flux_density_ratio', 'spin_flux_density_ratio',
+                        'angular_momentum_flux_density_ratio'):
+                self.assertAlmostEqual(row[name], expected_sign * c, delta=0.01 * c,
+                                       msg=f'{name} for harmonic N={row["N"]}')

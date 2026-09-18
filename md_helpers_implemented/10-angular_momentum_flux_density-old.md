@@ -1,5 +1,14 @@
 # Implemented: Angular Momentum Flux Density Along $Oz$
 
+## OUTDATED - NOT TO BE CONSIDERED
+
+Superseded by `md_helpers_implemented/11-numerical_calculation_of_observables.md`, which
+implements `md_helpers_proposed/11-numerical_calculation_of_observables.md`. The
+`ScreenResult.angular_momentum_flux_density` property and `compute_angular_momentum_flux_density()`
+method described below no longer exist; `ScreenResult.total_angular_momentum_flux_zz()` (and its
+spin/orbital decomposition) replace them, and `plot_screen_angular_momentum_flux_density()` now
+plots that new quantity instead.
+
 Module: `superradiant_thomson/screen.py`. Plotting: `superradiant_thomson/plotting/screen.py`. Tests: `tests/test_screen.py`.
 
 Provides the `ScreenResult.angular_momentum_flux_density` property and `plot_screen_angular_momentum_flux_density()` plot generator.
