@@ -10,6 +10,7 @@ from .electron import (
 from .screen import (
     ScreenGeometry, ScreenResult, screen_schema, compute_screen_emitted_field,
 )
+from .check_parameters import check_parameters, ParameterCheckError
 
 __all__ = [
     'minkowski_dot', 'minkowski_norm_sq', 'lower_index', 'raise_index',
@@ -17,4 +18,5 @@ __all__ = [
     'Electron', 'electron_schema', 'generate_electron_initial_conditions',
     'solve_electron_trajectory', 'solve_electron_ensemble',
     'ScreenGeometry', 'ScreenResult', 'screen_schema', 'compute_screen_emitted_field',
+    'check_parameters', 'ParameterCheckError',
 ]

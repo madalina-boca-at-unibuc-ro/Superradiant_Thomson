@@ -51,16 +51,17 @@ with $\varepsilon_0=1/(4\pi)$ and $c$ in atomic units.
 
 ## 4. Plotting: one folder per harmonic
 
-`plotting.screen.generate_all_screen_observable_plots` plots 6 heatmaps per non-linear-Thomson
+`plotting.screen.generate_all_screen_observable_plots` plots 8 heatmaps per non-linear-Thomson
 harmonic — `energy_density`, `energy_flux_z`, `total_angular_momentum_density_z`,
 `total_angular_momentum_flux_zz`, `spin_angular_momentum_density_z`,
-`spin_angular_momentum_flux_zz` — into `run_dir / 'screen_observables_N_<N>_omega_<val>_omega0/'`,
+`spin_angular_momentum_flux_zz`, `orbital_angular_momentum_density_z`,
+`orbital_angular_momentum_flux_zz` — into `run_dir / 'screen_observables_N_<N>_omega_<val>_omega0/'`,
 mirroring `generate_all_screen_breakdown_plots`'s per-harmonic folder layout for the raw Faraday
 tensor components. There is no aggregate, all-harmonics-in-one-figure plot for any screen
 observable; every plot is per-harmonic. This replaced the original single top-level
 `screen_emitted_intensity.png`/`screen_angular_momentum_flux.png` (and their generating functions
 `plot_screen_emitted_intensity`/`plot_screen_angular_momentum_flux_density`, both removed) once all
-six observables needed plotting rather than just the two.
+observables needed plotting rather than just two.
 
 ## 5. `run.json`
 
@@ -74,15 +75,16 @@ below, `N` (harmonic index), and `omega_au`. These are written into
 `metadata['screen_observables']['rows']` in `run.json` only — there is no separate `run_log.txt`
 (the earlier tab-separated-file design, `output.write_run_log`, was removed; don't re-add it).
 
-## 6. Physical check: flux/density = +-c in the far field
+## 6. Physical checks in `run.json`
 
-`main.py` precomputes these ratios into each `run.json` row — `energy_flux_density_ratio`
-(`int_dPz_domega/int_du_domega`), `spin_flux_density_ratio`
-(`int_dSigma_zz_domega/int_dSz_domega`), and `angular_momentum_flux_density_ratio`
-(`(int_dSigma_zz_domega+int_dLambda_zz_domega)/int_dJz_domega`) — rather than leaving callers to
-derive them from the raw integrals.
+`main.py` precomputes these ratios into each `run.json` row (`screen_observables` and `incident_laser_observables`):
+- `energy_flux_density_ratio` (`int_dPz_domega / int_du_domega`), `spin_flux_density_ratio` (`int_dSigma_zz_domega / int_dSz_domega`), and `angular_momentum_flux_density_ratio` (`(int_dSigma_zz + int_dLambda_zz) / int_dJz_domega`). In the far field, each equals $\pm c$ (sign matching $\operatorname{sgn}(z_{\text{screen}})$).
+- `spin_flux_energy_flux_ratio` (`int_dSigma_zz_domega / int_dPz_domega`) compared against theoretical spin-to-energy ratio $\epsilon / \omega$.
+- `orbital_flux_energy_flux_ratio` (`int_dLambda_zz_domega / int_dPz_domega`) compared against theoretical orbital-to-energy ratio $\epsilon \cdot m / \omega$.
+
 `tests/test_output.py::OutputTests::test_screen_observable_flux_density_ratio_equals_c` runs the
 full `main.py` pipeline and checks, per harmonic, that each of these three ratios
+
 is `+c` or `-c` (sign matching which side of the source `screen.z_screen` is on). This holds because far from the source every
 field component shares the same phase velocity $c$ in vacuum, so any locally-conserved bilinear
 quantity radiation carries satisfies flux $= c\,n_z\,$density. It is a *near-field* effect, not a

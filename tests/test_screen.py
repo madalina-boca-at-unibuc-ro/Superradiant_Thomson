@@ -389,7 +389,7 @@ class TestScreenEvaluator(unittest.TestCase):
             plt.close(f)
 
     def test_screen_observable_plots_write_per_harmonic_folders(self):
-        """Each harmonic gets its own subfolder containing all 6 observable PNGs."""
+        """Each harmonic gets its own subfolder containing all 8 observable PNGs."""
         import tempfile
         from pathlib import Path
 

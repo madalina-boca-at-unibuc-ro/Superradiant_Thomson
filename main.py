@@ -46,8 +46,8 @@ INPUTS = {
     'laser.flat_top_periods': 10,
     'laser.sigma_l': {'value': 2, 'unit': 'T'},
     'laser.wing_factor': 5,
-    'laser.p': 0,
-    'laser.m': 1,
+    'laser.p': 2,
+    'laser.m': 2,
     'laser.epsilon': 1,
     'laser.w_0': {'value': 75, 'unit': 'lambda'},
     'laser.zeta_x': 1.0,
@@ -55,13 +55,13 @@ INPUTS = {
     'x_plot_laser': {'value': 0.5, 'unit': 'w_0'},
     'y_plot_laser': {'value': 0.0, 'unit': 'w_0'},
     'z_plot_laser': {'value': 0.0, 'unit': 'w_0'},
-    'electron.N': 512,
+    'electron.N': 2048,
     'electron.seed': 42,
     'electron.NT': 100,
     'electron.x_0': {'value': 0.0, 'unit': 'w_0'},
     'electron.y_0': {'value': 0.0, 'unit': 'w_0'},
     'electron.z_0': {'value': 0.0, 'unit': 'w_0'},
-    'electron.R_beam': {'value': 1.50, 'unit': 'w_0'},
+    'electron.R_beam': {'value': 3.0, 'unit': 'w_0'},
     'electron.h_beam': {'value': 0.0, 'unit': 'w_0'},
     'electron.px_beam': {'value': 0.0, 'unit': 'c'},
     'electron.py_beam': {'value': 0.0, 'unit': 'c'},
@@ -76,7 +76,7 @@ INPUTS = {
     'screen.Nx': 64,
     'screen.Ny': 64,
     'screen.R_min': {'value': 0.0, 'unit': 'lambda'},
-    'screen.R_max': {'value': 200.0, 'unit': 'lambda'},
+    'screen.R_max': {'value': 400.0, 'unit': 'lambda'},
     'screen.N_R': 64,
     'screen.Phi_min': {'value': 0.0, 'unit': 'pi'},
     'screen.Phi_max': {'value': 2.0, 'unit': 'pi'},
@@ -87,8 +87,12 @@ INPUTS = {
 }
 
 
+from superradiant_thomson.check_parameters import check_parameters
+
+
 def initialize(inputs):
     """Resolve input units and construct the configured temporal laser factor."""
+    check_parameters(inputs)
     units = AtomicUnits()
     registry = default_registry(units)
     register_laser_scales(registry, units)
@@ -141,10 +145,12 @@ def main(*, show=False, output_root=None, inputs=None):
     write_json(run_dir / 'inputs.json', inputs)
     figures = []
     try:
+        from superradiant_thomson.lg_mode import compute_incident_laser_screen_field
         from superradiant_thomson.plotting import (
             plot_temporal_factor, plot_lg_intensity, plot_laser_fields,
             plot_electron_initial_distribution, plot_electron_ensemble_trajectories,
             generate_all_screen_breakdown_plots, generate_all_screen_observable_plots,
+            generate_incident_laser_screen_plots,
         )
         import matplotlib
         if not show:
@@ -348,7 +354,8 @@ def main(*, show=False, output_root=None, inputs=None):
             'description': 'Per-harmonic screen-surface integrals of the spectral observables '
                             '(md_helpers_proposed/11-numerical_calculation_of_observables.md), '
                             'plus their flux/density ratios (expected +-c, sign matching which '
-                            'side of the source screen.z_screen is on). '
+                            'side of the source screen.z_screen is on) and SAM/OAM-to-energy flux ratios '
+                            '(compared to theoretical spin/energy=epsilon/omega and orbital/energy=epsilon*m/omega). '
                             'int_dLambda_zz_domega (orbital flux) extends the columns the doc '
                             'requested so every density has a matching flux integral: '
                             'int_dSigma_zz_domega+int_dLambda_zz_domega is the total angular '
@@ -367,6 +374,10 @@ def main(*, show=False, output_root=None, inputs=None):
                     'energy_flux_density_ratio': float(energy_ratio[iw]),
                     'spin_flux_density_ratio': float(spin_ratio[iw]),
                     'angular_momentum_flux_density_ratio': float(angular_momentum_ratio[iw]),
+                    'spin_flux_energy_flux_ratio': float(int_dSigma_zz[iw] / int_dPz[iw]) if int_dPz[iw] != 0 else 0.0,
+                    'theoretical_spin_flux_energy_flux_ratio': float(mode.epsilon / screen_geom.omega[iw]),
+                    'orbital_flux_energy_flux_ratio': float(int_dLambda_zz[iw] / int_dPz[iw]) if int_dPz[iw] != 0 else 0.0,
+                    'theoretical_orbital_flux_energy_flux_ratio': float(mode.epsilon * mode.m / screen_geom.omega[iw]),
                 }
                 for iw in range(screen_geom.omega.size)
             ],
@@ -387,6 +398,72 @@ def main(*, show=False, output_root=None, inputs=None):
             run_dir=run_dir, close_figs=not show
         )
         figures.extend(observable_figs)
+
+        # Compute and save incident laser beam FT Faraday tensor and physical observables at z=0
+        laser_screen_result = compute_incident_laser_screen_field(mode, amplitude, screen_geom, units.c)
+        np.savez_compressed(
+            run_dir / 'incident_laser_screen_field.npz',
+            omega=laser_screen_result.geometry.omega,
+            grid_x=laser_screen_result.geometry.grid_x,
+            grid_y=laser_screen_result.geometry.grid_y,
+            z_screen=0.0,
+            F_total=laser_screen_result.F_total,
+        )
+        laser_figs = generate_incident_laser_screen_plots(
+            laser_screen_result, c=units.c, lambda_scale=mode.get_lambda(), w_0=mode.w_0, pulse=pulse,
+            run_dir=run_dir, close_figs=not show
+        )
+        figures.extend(laser_figs)
+
+        # Incident laser beam surface integrals at z=0
+        dSz_laser = laser_screen_result.spin_angular_momentum_density_z(c=units.c)
+        dLz_laser = laser_screen_result.orbital_angular_momentum_density_z(c=units.c)
+        dJz_laser = dLz_laser + dSz_laser
+        dSigma_zz_laser = laser_screen_result.spin_angular_momentum_flux_zz(c=units.c)
+        dLambda_zz_laser = laser_screen_result.orbital_angular_momentum_flux_zz(c=units.c)
+        du_laser = laser_screen_result.energy_density(c=units.c)
+        dPz_laser = laser_screen_result.energy_flux_z(c=units.c)
+
+        int_dSz_laser = laser_screen_result.integrate_over_screen(dSz_laser)
+        int_dLz_laser = laser_screen_result.integrate_over_screen(dLz_laser)
+        int_dJz_laser = laser_screen_result.integrate_over_screen(dJz_laser)
+        int_dSigma_zz_laser = laser_screen_result.integrate_over_screen(dSigma_zz_laser)
+        int_dLambda_zz_laser = laser_screen_result.integrate_over_screen(dLambda_zz_laser)
+        int_du_laser = laser_screen_result.integrate_over_screen(du_laser)
+        int_dPz_laser = laser_screen_result.integrate_over_screen(dPz_laser)
+
+        int_dJflux_laser = int_dSigma_zz_laser + int_dLambda_zz_laser
+        energy_ratio_laser = int_dPz_laser / int_du_laser
+        spin_ratio_laser = int_dSigma_zz_laser / int_dSz_laser
+        angular_momentum_ratio_laser = int_dJflux_laser / int_dJz_laser
+
+        metadata['incident_laser_observables'] = {
+            'description': 'Screen-surface integrals of the spectral observables for the incident laser beam at z=0, '
+                            'plus their flux/density ratios (expected +c for forward-propagating laser beam) '
+                            'and SAM/OAM-to-energy flux ratios (compared to theoretical spin/energy=epsilon/omega '
+                            'and orbital/energy=epsilon*m/omega).',
+            'rows': [
+                {
+                    'N': 1,
+                    'omega_au': float(laser_screen_result.geometry.omega[0]),
+                    'int_dSz_domega': float(int_dSz_laser[0]),
+                    'int_dLz_domega': float(int_dLz_laser[0]),
+                    'int_dJz_domega': float(int_dJz_laser[0]),
+                    'int_dSigma_zz_domega': float(int_dSigma_zz_laser[0]),
+                    'int_dLambda_zz_domega': float(int_dLambda_zz_laser[0]),
+                    'int_du_domega': float(int_du_laser[0]),
+                    'int_dPz_domega': float(int_dPz_laser[0]),
+                    'energy_flux_density_ratio': float(energy_ratio_laser[0]),
+                    'spin_flux_density_ratio': float(spin_ratio_laser[0]),
+                    'angular_momentum_flux_density_ratio': float(angular_momentum_ratio_laser[0]),
+                    'spin_flux_energy_flux_ratio': float(int_dSigma_zz_laser[0] / int_dPz_laser[0]) if int_dPz_laser[0] != 0 else 0.0,
+                    'theoretical_spin_flux_energy_flux_ratio': float(mode.epsilon / laser_screen_result.geometry.omega[0]),
+                    'orbital_flux_energy_flux_ratio': float(int_dLambda_zz_laser[0] / int_dPz_laser[0]) if int_dPz_laser[0] != 0 else 0.0,
+                    'theoretical_orbital_flux_energy_flux_ratio': float(mode.epsilon * mode.m / laser_screen_result.geometry.omega[0]),
+                }
+            ],
+        }
+
         metadata['status'] = 'complete'
         metadata['finished_utc'] = datetime.now(timezone.utc).isoformat()
         write_json(run_dir / 'run.json', metadata)

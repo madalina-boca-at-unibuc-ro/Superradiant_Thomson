@@ -146,9 +146,7 @@ def plot_screen_faraday_component_breakdown(result: ScreenResult, component_idx:
 
     # 4. Phase Part
     ax = axs[1, 1]
-    # Phase wraps at +-pi (a branch cut), so Gouraud's linear color interpolation across a
-    # cell boundary there would blend visually unrelated colors; flat shading avoids that.
-    im_phase = _draw_2d_heatmap(ax, phase_part, geom, scale_spatial, cmap='twilight', vmin=-np.pi, vmax=np.pi, w_0=w_0, shading='flat')
+    im_phase = _draw_2d_heatmap(ax, phase_part, geom, scale_spatial, cmap='twilight', vmin=-np.pi, vmax=np.pi, w_0=w_0, shading='gouraud')
     cbar_phase = fig.colorbar(im_phase, ax=ax, shrink=0.85, ticks=[-np.pi, -np.pi/2, 0, np.pi/2, np.pi])
     cbar_phase.ax.set_yticklabels(['$-\\pi$', '$-\\pi/2$', '$0$', '$\\pi/2$', '$\\pi$'])
     label_axes(ax, xlabel=f'$x/{label_spatial}$', ylabel=f'$y/{label_spatial}$',
@@ -239,6 +237,8 @@ _OBSERVABLE_SPECS = (
      '$d\\Sigma_{zz}/d\\omega + d\\Lambda_{zz}/d\\omega$ (a.u.)', True),
     ('spin_angular_momentum_density_z', 'screen_spin_density', '$dS_z/d\\omega$ (a.u.)', True),
     ('spin_angular_momentum_flux_zz', 'screen_spin_flux', '$d\\Sigma_{zz}/d\\omega$ (a.u.)', True),
+    ('orbital_angular_momentum_density_z', 'screen_orbital_density', '$dL_z/d\\omega$ (a.u.)', True),
+    ('orbital_angular_momentum_flux_zz', 'screen_orbital_flux', '$d\\Lambda_{zz}/d\\omega$ (a.u.)', True),
 )
 
 
@@ -274,11 +274,12 @@ def generate_all_screen_observable_plots(result: ScreenResult, *, c=None, lambda
                                          w_0=None, pulse=None, run_dir=None, close_figs=False):
     """Generate one heatmap per spectral electromagnetic observable, per harmonic.
 
-    Plots energy density/flux, total (spin+orbital) angular-momentum density/flux, and spin
-    angular-momentum density/flux (md_helpers_proposed/11-numerical_calculation_of_observables.md),
+    Plots energy density/flux, total (spin+orbital) angular-momentum density/flux, spin
+    angular-momentum density/flux, and orbital angular-momentum density/flux
+    (md_helpers_proposed/11-numerical_calculation_of_observables.md),
     each evaluated from the total field F_total = F_l + F_s + F_b.
 
-    When `run_dir` is provided, saves 6 PNGs per harmonic into a distinct subfolder per frequency
+    When `run_dir` is provided, saves 8 PNGs per harmonic into a distinct subfolder per frequency
     (e.g. `screen_observables_N_1_omega_0.9950_omega0`), mirroring
     `generate_all_screen_breakdown_plots`'s per-harmonic folder layout.
     """
@@ -314,4 +315,61 @@ def generate_all_screen_observable_plots(result: ScreenResult, *, c=None, lambda
                 figs.append(fig)
 
     return figs
+
+
+def generate_incident_laser_screen_plots(laser_result: ScreenResult, *, c=None, lambda_scale=None,
+                                        w_0=None, pulse=None, run_dir=None, close_figs=False):
+    """Generate 6 component breakdown plots and 8 observable heatmaps for the incident laser beam at z=0.
+
+    Saves outputs into subfolders:
+    - `incident_laser_breakdown_omega_<val>_<label_w}/`
+    - `incident_laser_observables_omega_<val>_<label_w}/`
+    """
+    from pathlib import Path
+    figs = []
+    scale_w, label_w = (pulse.timing.omega, 'omega0') if pulse is not None else (1.0, 'au')
+    title_w_label = '\\omega_0' if pulse is not None else 'a.u.'
+    w_val = laser_result.geometry.omega[0] / scale_w
+
+    if run_dir is not None:
+        target_breakdown_dir = Path(run_dir) / f'incident_laser_breakdown_omega_{w_val:.4g}_{label_w}'
+        target_observables_dir = Path(run_dir) / f'incident_laser_observables_omega_{w_val:.4g}_{label_w}'
+        target_breakdown_dir.mkdir(parents=True, exist_ok=True)
+        target_observables_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        target_breakdown_dir = None
+        target_observables_dir = None
+
+    # 1. 6 Faraday tensor component breakdown plots (Real, Imag, Modulus, Phase)
+    for comp in range(6):
+        name = COMPONENT_NAMES[comp]
+        fig, _ = plot_screen_faraday_component_breakdown(
+            laser_result, comp, contribution='total', omega_idx=0,
+            lambda_scale=lambda_scale, unit_label='\\lambda', w_0=w_0, pulse=pulse
+        )
+        fig.suptitle(f'Incident Laser Faraday Tensor $\\tilde{{{name}}}$ [z=0] at $\\omega = {w_val:.4g}\\,{title_w_label}$', fontsize=12)
+        if target_breakdown_dir is not None:
+            fig.savefig(target_breakdown_dir / f'incident_laser_{name}.png', dpi=180)
+        if close_figs:
+            plt.close(fig)
+        else:
+            figs.append(fig)
+
+    # 2. 8 physical observable heatmaps
+    values = {name: getattr(laser_result, name)(c=c) for name, *_ in _OBSERVABLE_SPECS}
+    for name, fname, label, diverging in _OBSERVABLE_SPECS:
+        title = f'Incident Laser {label.split(" (")[0]} at z=0 ($\\omega = {w_val:.4g}\\,{title_w_label}$)'
+        fig, _ = _plot_screen_observable_heatmap(
+            laser_result, values[name][0], label=label, title=title,
+            lambda_scale=lambda_scale, w_0=w_0, diverging=diverging,
+        )
+        if target_observables_dir is not None:
+            fig.savefig(target_observables_dir / f'{fname}.png', dpi=180)
+        if close_figs:
+            plt.close(fig)
+        else:
+            figs.append(fig)
+
+    return figs
+
 

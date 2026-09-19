@@ -254,3 +254,65 @@ def contract_faraday(F, p):
     return np.einsum('...ij,...j->...i', F, p_lower)
 
 
+def compute_incident_laser_screen_field(mode: LGMode, amplitude, geometry, c: float):
+    """Compute the complex FT spatial phasor Faraday tensor of the incident LG laser beam at z=0.
+
+    Evaluated on a 2D spatial grid matching `geometry` at z=0.
+    Drops the temporal envelope and e^{i(omega t - k z)} carrier phase factor.
+    Returns a ScreenResult (with single frequency omega_0 and F_l=F_laser, F_s=0, F_b=0, F_total=F_laser).
+    """
+    from .screen import ScreenGeometry, ScreenResult
+
+    omega_arr = np.array([mode.omega], dtype=float)
+    harmonics_arr = np.array([1], dtype=int)
+
+    if geometry.shape_type == 'rectangular':
+        geom_z0 = ScreenGeometry(
+            z_screen=0.0, width=geometry.width, height=geometry.height,
+            Nx=geometry.Nx, Ny=geometry.Ny,
+            omega=omega_arr, harmonics=harmonics_arr, shape_type='rectangular'
+        )
+    else:
+        geom_z0 = ScreenGeometry(
+            z_screen=0.0,
+            R_min=geometry.R_min, R_max=geometry.R_max, N_R=geometry.N_R,
+            Phi_min=geometry.Phi_min, Phi_max=geometry.Phi_max, N_Phi=geometry.N_Phi,
+            omega=omega_arr, harmonics=harmonics_arr, shape_type='annular'
+        )
+
+    X, Y = geom_z0.grid_x, geom_z0.grid_y
+    u, ux, uy = mode.evaluate(X, Y, 0.0)
+
+    E_0 = amplitude.E_0
+    c = float(c)
+    k = mode.k
+    zx = mode.zeta_x
+    zy = mode.zeta_y
+
+    # Complex E and B field spatial phasors at z=0
+    Ex = E_0 * zx * u
+    Ey = E_0 * zy * u
+    Ez = E_0 * (1j / k) * (zx * ux + zy * uy)
+
+    Bx = (E_0 / c) * (-zy * u)
+    By = (E_0 / c) * (zx * u)
+    Bz = (E_0 / c) * (1j / k) * (-zy * ux + zx * uy)
+
+    # Upper-triangular Faraday tensor components (F01, F02, F03, F12, F13, F23)
+    F_laser = np.zeros((1, X.shape[0], X.shape[1], 6), dtype=complex)
+    F_laser[0, :, :, 0] = -Ex / c  # F01
+    F_laser[0, :, :, 1] = -Ey / c  # F02
+    F_laser[0, :, :, 2] = -Ez / c  # F03
+    F_laser[0, :, :, 3] = -Bz      # F12
+    F_laser[0, :, :, 4] = By       # F13
+    F_laser[0, :, :, 5] = -Bx      # F23
+
+    F_zero = np.zeros_like(F_laser)
+    return ScreenResult(
+        geometry=geom_z0,
+        F_l=F_laser,
+        F_s=F_zero,
+        F_b=F_zero,
+    )
+
+

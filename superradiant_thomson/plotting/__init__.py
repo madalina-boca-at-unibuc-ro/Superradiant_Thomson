@@ -13,6 +13,7 @@ from .screen import (
     plot_screen_faraday_component_breakdown,
     generate_all_screen_breakdown_plots,
     generate_all_screen_observable_plots,
+    generate_incident_laser_screen_plots,
 )
 
 __all__ = [
@@ -22,6 +23,6 @@ __all__ = [
     'plot_electron_position_trajectories', 'plot_electron_velocity_trajectories',
     'plot_electron_acceleration_trajectories', 'plot_electron_ensemble_trajectories',
     'plot_screen_faraday_component_breakdown', 'generate_all_screen_breakdown_plots',
-    'generate_all_screen_observable_plots',
+    'generate_all_screen_observable_plots', 'generate_incident_laser_screen_plots',
 ]
 

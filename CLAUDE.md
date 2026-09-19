@@ -36,6 +36,9 @@ matplotlib, pytest). Use that interpreter to run code and tests from this worktr
 .venv/bin/python -m pytest tests/test_screen.py::TestScreenEvaluator
 .venv/bin/python -m pytest tests/test_screen.py::TestScreenEvaluator::test_form1_vs_form2_agreement -v
 
+# Run parameter validation check standalone
+python check_parameters.py
+
 # Run the full simulation (writes figures/arrays to a new run directory)
 python main.py            # headless (Agg backend), writes under ~/output/SRT_<timestamp>_<id>/
 python main.py --show     # also opens interactive plot windows
@@ -51,8 +54,10 @@ with the same keys to `main()`/`sample_pulse()`.
 Pipeline stages, matching `md_helpers_proposed/00-general_advice.md`'s mandated layering
 (`configuration -> physics kernels -> orchestration/parallelism -> output/plots`):
 
-1. **`parameters.py`** — dimensional unit system and extensible parameter resolver. All inputs are
-   given as `{'value': ..., 'unit': ...}` (or bare numbers, implicitly atomic units) and resolved
+1. **`parameters.py` + `check_parameters.py`** — dimensional unit system, parameter validation, and extensible parameter resolver.
+   `check_parameters.py` validates inputs upfront (e.g. `laser.m >= 0`, `laser.p >= 0`, `laser.omega > 0`, `electron.N > 0`, valid `screen.shape`)
+   and raises `ParameterCheckError` with descriptive error messages before any simulation calculations begin.
+   All inputs are given as `{'value': ..., 'unit': ...}` (or bare numbers, implicitly atomic units) and resolved
    into Hartree atomic units via a `ScaleRegistry` of `Scale`s, some of which depend on other
    resolved parameters (e.g. `lambda` and `T` depend on `laser.omega`; `w_0` unit depends on
    `laser.w_0`). Each module contributes its own parameter `Parameter` schema dict (e.g.
@@ -102,9 +107,9 @@ Pipeline stages, matching `md_helpers_proposed/00-general_advice.md`'s mandated 
    generators, both writing one subfolder per frequency under `run_dir` when called from `main.py`:
    `generate_all_screen_breakdown_plots` decomposes the raw Faraday tensor per-harmonic into
    `F_l`/`F_s`/`F_b`/total, 2x2 panel (Real/Imag/Modulus/Phase), into
-   `screen_breakdown_N_<N>_omega_<val>_omega0/`; `generate_all_screen_observable_plots` plots the 6
+   `screen_breakdown_N_<N>_omega_<val>_omega0/`; `generate_all_screen_observable_plots` plots the 8
    derived physical observables (energy density/flux, total angular-momentum density/flux, spin
-   density/flux — all from `F_total` only) into `screen_observables_N_<N>_omega_<val>_omega0/`.
+   density/flux, and orbital density/flux — all from `F_total` only) into `screen_observables_N_<N>_omega_<val>_omega0/`.
    There is deliberately no aggregate all-harmonics-in-one-figure plot for any screen quantity
    anymore — every screen plot is per-harmonic, in its own folder.
 7. **`output.py`** — `create_run_directory` makes a fresh timestamped+uuid directory under

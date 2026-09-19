@@ -58,7 +58,9 @@ class OutputTests(unittest.TestCase):
             with patch.object(main, 'INPUTS', fast_inputs):
                 run = main.main(output_root=root)
             self.assertFalse((run / 'run_log.txt').exists())
-            rows = json.loads((run / 'run.json').read_text())['screen_observables']['rows']
+            run_data = json.loads((run / 'run.json').read_text())
+            rows = run_data['screen_observables']['rows']
+            laser_rows = run_data['incident_laser_observables']['rows']
 
         self.assertGreater(len(rows), 0)
         for row in rows:
@@ -66,3 +68,25 @@ class OutputTests(unittest.TestCase):
                         'angular_momentum_flux_density_ratio'):
                 self.assertAlmostEqual(row[name], expected_sign * c, delta=0.01 * c,
                                        msg=f'{name} for harmonic N={row["N"]}')
+            self.assertIn('spin_flux_energy_flux_ratio', row)
+            self.assertIn('theoretical_spin_flux_energy_flux_ratio', row)
+            self.assertIn('orbital_flux_energy_flux_ratio', row)
+            self.assertIn('theoretical_orbital_flux_energy_flux_ratio', row)
+
+        self.assertEqual(len(laser_rows), 1)
+        for name in ('energy_flux_density_ratio', 'spin_flux_density_ratio',
+                    'angular_momentum_flux_density_ratio'):
+            self.assertAlmostEqual(laser_rows[0][name], c, delta=0.01 * c,
+                                   msg=f'incident laser {name}')
+        # Incident laser ratio tests vs theoretical values
+        self.assertAlmostEqual(
+            laser_rows[0]['spin_flux_energy_flux_ratio'],
+            laser_rows[0]['theoretical_spin_flux_energy_flux_ratio'],
+            delta=0.01 * laser_rows[0]['theoretical_spin_flux_energy_flux_ratio']
+        )
+        self.assertAlmostEqual(
+            laser_rows[0]['orbital_flux_energy_flux_ratio'],
+            laser_rows[0]['theoretical_orbital_flux_energy_flux_ratio'],
+            delta=0.01 * laser_rows[0]['theoretical_orbital_flux_energy_flux_ratio']
+        )
+
